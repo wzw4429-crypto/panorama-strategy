@@ -1,0 +1,10 @@
+# 构建产物与本地运行痕迹
+node_modules/
+tests/.chrome-profile/
+tests/*.png
+*.log
+android/.gradle/
+android/app/build/
+android/build/
+android/app/src/main/assets/www/
+local.properties

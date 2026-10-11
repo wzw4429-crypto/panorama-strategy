@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PSE · 全景式历史战略模拟引擎 1936</title>
+<script>
+/* 运行期错误可视化：任何未捕获异常都会显示为顶部红条，便于自动化验证与玩家回报 */
+window.addEventListener('error', function (e) {
+  var b = document.getElementById('jsError');
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'jsError';
+    b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:999;background:#7a1f1f;color:#fff;padding:6px 12px;font:12px monospace';
+    document.body.appendChild(b);
+  }
+  b.textContent = 'JS-ERROR: ' + (e.message || e.error) + ' @ ' + (e.filename || '').split('/').pop() + ':' + e.lineno;
+  document.title = 'JS-ERROR ' + (e.message || '');
+});
+</script>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161c24; --panel2: #1e2630; --line: #2d3644;
+    --text: #d8dee9; --muted: #8695a8; --accent: #ffd24a; --ok: #4cd964;
+    --warn: #ff9f0a; --bad: #ff453a; --sea: #0e2233;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.5 "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  #app { display: grid; grid-template-rows: auto auto 1fr; height: 100%; }
+  button { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 4px 9px; cursor: pointer; font-size: 12px; }
+  button:hover:not(:disabled) { background: #27313d; border-color: #3d4b5c; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.on { background: var(--accent); color: #1a1a1a; border-color: var(--accent); font-weight: 700; }
+  button.danger { background: #5a2020; border-color: #8a3030; }
+  select, input[type=text] { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 3px 5px; font-size: 12px; }
+  #top { display: flex; align-items: center; gap: 12px; padding: 5px 12px; background: var(--panel);
+    border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  #top .cell { display: flex; align-items: baseline; gap: 5px; }
+  #top .k { color: var(--muted); font-size: 11px; }
+  #top .v { font-weight: 700; }
+  #countryName { font-size: 15px; font-weight: 800; color: #fff; }
+  #ideology { color: var(--muted); font-size: 11px; }
+  #resources { display: flex; gap: 6px; font-size: 11px; flex-wrap: wrap; }
+  #resources .res { color: var(--muted); }
+  #resources .res.short { color: var(--bad); font-weight: 700; }
+  #tensionWrap { width: 64px; height: 5px; background: #2a323d; border-radius: 3px; overflow: hidden; }
+  #tensionBar { height: 100%; background: var(--warn); }
+  #alerts { display: flex; gap: 6px; font-size: 11px; }
+  .alert { color: var(--warn); }
+  .alert.war { color: var(--bad); font-weight: 700; }
+  .ok { color: var(--ok); }
+  .muted { color: var(--muted); }
+  .small { font-size: 11px; }
+  #toolbar { display: flex; align-items: center; gap: 6px; padding: 4px 12px; background: var(--panel2);
+    border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  #toolbar .group { display: flex; gap: 3px; align-items: center; }
+  #toolbar .sep { width: 1px; height: 18px; background: var(--line); }
+  #main { display: grid; grid-template-columns: 1fr 400px; overflow: hidden; min-height: 0; }
+  #mapWrap { position: relative; overflow: hidden; background: var(--sea); min-height: 0; }
+  #map { display: block; width: 100%; height: 100%; cursor: grab; }
+  #map:active { cursor: grabbing; }
+  #side { display: grid; grid-template-rows: auto auto 1fr 120px; border-left: 1px solid var(--line); overflow: hidden; background: var(--panel); min-height: 0; }
+  #provinceInfo { padding: 7px 10px; border-bottom: 1px solid var(--line); max-height: 210px; overflow: auto; }
+  #tabs { display: flex; gap: 3px; padding: 5px 8px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  #panelBody { padding: 8px 10px; overflow: auto; }
+  #log { overflow: auto; border-top: 1px solid var(--line); padding: 5px 10px; font-size: 11px; background: #121820; }
+  .logLine { padding: 1px 0; border-bottom: 1px solid rgba(255,255,255,.03); }
+  .logLine.war { color: #ff9d94; }
+  .logLine.eco { color: #9fd3ff; }
+  .logLine.tech { color: #b8ffb8; }
+  .logLine.focus { color: var(--accent); }
+  .logLine.warn { color: var(--warn); }
+  .logLine.diplo { color: #d6b8ff; }
+  .sec { margin-bottom: 11px; }
+  .secTitle { font-weight: 700; color: #fff; margin-bottom: 4px; border-bottom: 1px solid var(--line); padding-bottom: 3px; }
+  .row { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+  .row.wrap { flex-wrap: wrap; }
+  .eqName { min-width: 86px; }
+  .num { font-weight: 700; min-width: 26px; text-align: right; }
+  .mini { padding: 1px 6px; font-size: 11px; }
+  .bar { flex: 1; height: 8px; background: #2a323d; border-radius: 3px; overflow: hidden; min-width: 36px; }
+  .bar.big { height: 12px; margin: 4px 0; }
+  .bar i { display: block; height: 100%; background: var(--ok); }
+  .provTitle { font-weight: 800; color: #fff; font-size: 14px; margin-bottom: 3px; }
+  .kv { display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+  .kv span { color: var(--muted); }
+  .chip { display: inline-block; background: var(--panel2); border: 1px solid var(--line); border-radius: 3px;
+    padding: 1px 5px; margin: 2px 3px 2px 0; font-size: 11px; }
+  .techList { max-height: 130px; overflow: auto; }
+  .preview { background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 5px 7px; margin: 5px 0; }
+  .focusWrap { position: relative; overflow: auto; max-height: 460px; background: #11161d; border: 1px solid var(--line); border-radius: 4px; }
+  .focusNode { position: absolute; width: 124px; height: 56px; box-sizing: border-box;
+    border: 1px solid var(--line); border-radius: 5px;
+    background: var(--panel2); padding: 4px 6px; font-size: 11px; line-height: 1.35;
+    cursor: pointer; overflow: hidden; }
+  .focusNode b, .focusNode span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .focusNode.done { border-color: #3a5c3f; opacity: .65; }
+  .focusNode.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .focusNode.avail { border-color: #4a7fa8; }
+  .focusNode.locked { opacity: .45; cursor: not-allowed; }
+  .hidden { display: none !important; }
+  #tooltip { position: fixed; z-index: 50; background: rgba(12,18,26,.95); border: 1px solid var(--line);
+    border-radius: 4px; padding: 5px 8px; font-size: 11px; pointer-events: none; max-width: 250px; }
+  #eventModal, #peaceModal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex;
+    align-items: center; justify-content: center; z-index: 100; }
+  #eventBox, #peaceBox { background: var(--panel); border: 1px solid var(--accent); border-radius: 6px; padding: 16px 20px; max-width: 580px; }
+  #eventTitle, #peaceTitle { font-size: 17px; font-weight: 800; color: var(--accent); margin-bottom: 8px; }
+  .eventOpt { margin-bottom: 8px; }
+  .eventOpt button { width: 100%; text-align: left; }
+  #startOverlay { position: fixed; inset: 0; background: linear-gradient(160deg, #0b1017, #17222e);
+    display: flex; align-items: center; justify-content: center; z-index: 200; }
+  #startBox { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 24px 28px; width: 560px; }
+  #startBox h1 { margin: 0 0 4px; font-size: 22px; color: #fff; }
+  #startBox p { color: var(--muted); margin: 4px 0 12px; }
+  #gameOver { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: flex; align-items: center;
+    justify-content: center; z-index: 150; }
+  #gameOverBox { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 22px 28px; text-align: center; }
+  #toasts { position: fixed; right: 14px; bottom: 14px; z-index: 300; display: flex; flex-direction: column; gap: 6px; }
+  .toast { background: var(--panel2); border: 1px solid var(--line); border-left: 3px solid var(--ok);
+    border-radius: 4px; padding: 7px 11px; font-size: 12px; animation: slide .2s ease-out; }
+  .toast.warn { border-left-color: var(--warn); }
+  @keyframes slide { from { transform: translateX(20px); opacity: 0; } to { transform: none; opacity: 1; } }
+  #console { position: fixed; left: 12px; bottom: 12px; width: 460px; background: rgba(10,14,20,.96);
+    border: 1px solid var(--line); border-radius: 6px; z-index: 260; padding: 8px; }
+  #consoleOut { max-height: 160px; overflow: auto; font: 11px/1.45 Consolas, monospace; color: #9fe0a0; margin-bottom: 6px; white-space: pre-wrap; }
+  #consoleIn { width: 100%; font: 12px Consolas, monospace; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top">
+    <div class="cell"><span id="countryName">—</span><span id="ideology"></span></div>
+    <div class="cell"><span class="k">日期</span><span class="v" id="date">1936年1月1日</span></div>
+    <div class="cell"><span class="k">政治点</span><span class="v" id="pp">0</span></div>
+    <div class="cell"><span class="k">人力</span><span class="v" id="manpower">0</span></div>
+    <div class="cell"><span class="k">稳定</span><span class="v" id="stability">0%</span></div>
+    <div class="cell"><span class="k">战争支持</span><span class="v" id="warSupport">0%</span></div>
+    <div class="cell"><span class="k">工厂(民/军/坞)</span><span class="v" id="factories">0</span></div>
+    <div class="cell"><span class="k">信用点</span><span class="v" id="credits">0</span></div>
+    <div class="cell"><span class="k">紧张度</span><span class="v" id="tension">0</span>
+      <div id="tensionWrap"><div id="tensionBar"></div></div></div>
+    <div class="cell" id="resources"></div>
+    <div class="cell"><span class="k" id="resourceFactor">供给系数 100%</span></div>
+    <div class="cell"><span class="k">陆军</span><span class="v" id="armyInfo">—</span></div>
+    <div class="cell" id="alerts"></div>
+  </div>
+
+  <div id="toolbar">
+    <div class="group">
+      <span class="muted small">速度</span>
+      <button data-speed="0" title="空格">⏸</button>
+      <button data-speed="1">1x</button>
+      <button data-speed="2" class="on">2x</button>
+      <button data-speed="3">3x</button>
+      <button data-speed="4">4x</button>
+      <button data-speed="5">5x</button>
+      <span class="v" id="speedLabel">2x</span>
+    </div>
+    <div class="sep"></div>
+    <div class="group">
+      <span class="muted small">图层</span>
+      <button data-layer="political" class="on">政治</button>
+      <button data-layer="terrain">地形</button>
+      <button data-layer="supply">补给网</button>
+      <button data-layer="front">战线</button>
+      <button data-layer="air">空域</button>
+      <button data-layer="naval">海区</button>
+      <button data-layer="resistance">抵抗</button>
+    </div>
+    <div class="sep"></div>
+    <div class="group">
+      <button data-tab="production" class="on">生产</button>
+      <button data-tab="equipment">装备</button>
+      <button data-tab="research">科研</button>
+      <button data-tab="focus">国策</button>
+      <button data-tab="army">陆军</button>
+      <button data-tab="navy">海军</button>
+      <button data-tab="air">空军</button>
+      <button data-tab="spy">谍报</button>
+      <button data-tab="diplomacy">外交</button>
+      <button data-tab="logistics">后勤</button>
+    </div>
+    <div class="sep"></div>
+    <div class="group">
+      <span class="muted small">拖动平移 · 滚轮缩放 · 右键下令 · 空格暂停 · 1-5 速度 · L 切图层 · S 存档 · ~ 控制台</span>
+    </div>
+    <div class="group" style="margin-left:auto">
+      <button id="btnHelp" onclick="document.getElementById('helpBox').classList.toggle('hidden')">玩法说明</button>
+      <button onclick="document.getElementById('console').classList.toggle('hidden')">控制台</button>
+    </div>
+  </div>
+
+  <div id="main">
+    <div id="mapWrap">
+      <canvas id="map"></canvas>
+      <div id="helpBox" class="hidden" style="position:absolute;left:12px;top:12px;max-width:560px;background:rgba(12,18,26,.96);border:1px solid #2d3644;border-radius:6px;padding:12px 15px;z-index:20">
+        <b>怎么玩</b>
+        <div class="small muted" style="margin-top:6px">
+          1. 左键点省份看详情；「陆军」面板选中部队（或全选）后，<b>右键点目标省</b>实现行军/进攻。<br>
+          2. 「生产」调产线与建设；「装备」自定义坦克/飞机并与他国做军火贸易；「科研」切项目；「国策」走历史路线（分支互斥）。<br>
+          3. 「陆军」面板可给集团军任命将领、下 <b>防守/推进/强攻</b> 命令（推进=自动向敌控邻省进攻）。<br>
+          4. 「海军」组建舰队争夺海区（制海权≥40% 才能两栖登陆）；「空军」给联队分配任务（制空/近距支援/战略轰炸/对海打击/空运）。<br>
+          5. 「谍报」成立情报局派特工（窃取蓝图/破坏/政变/抵抗网络/解密）；「外交」改善关系、结盟、租借、制造借口、宣战。<br>
+          6. 图层：<b>补给网</b>是枢纽+线路管网图，<b>战线</b>是接触线与进攻箭头，<b>空域/海区</b>是区域叠加；断供省用斜线标示。<br>
+          7. 决议与民族精神带来长期增益；战后胜利国可按贡献吞并/扶植傀儡/恢复独立。<br>
+          8. 非铁人模式按 <b>~</b> 打开控制台（pp / manpower / instant / research_all / teleport / switch / annex / war / nuke 等）。
+        </div>
+      </div>
+    </div>
+    <div id="side">
+      <div id="provinceInfo"><div class="muted">点击地图查看省份</div></div>
+      <div id="tabs"></div>
+      <div id="panelBody"></div>
+      <div id="log"></div>
+    </div>
+  </div>
+</div>
+
+<div id="tooltip" class="hidden"></div>
+<div id="toasts"></div>
+
+<div id="console" class="hidden">
+  <div id="consoleOut">控制台（非铁人模式）：help 查看命令。例：pp 500 / instant / research_all / teleport 柏林 / switch SOV / war POL</div>
+  <input type="text" id="consoleIn" placeholder="输入命令后回车…">
+</div>
+
+<div id="eventModal" class="hidden"><div id="eventBox">
+  <div id="eventTitle"></div>
+  <div id="eventDesc"></div>
+  <div id="eventOptions"></div>
+</div></div>
+
+<div id="peaceModal" class="hidden"><div id="peaceBox">
+  <div id="peaceTitle">和平会议</div>
+  <div id="peaceDesc" class="small muted"></div>
+  <div id="peaceOptions"></div>
+</div></div>
+
+<div id="gameOver" class="hidden"><div id="gameOverBox">
+  <div id="gameOverText"></div>
+  <div style="margin-top:14px"><button onclick="location.reload()">重新开始</button></div>
+</div></div>
+
+<div id="startOverlay">
+  <div id="startBox">
+    <h1>全景式历史战略模拟引擎</h1>
+    <p>1936–1950 · 真实地理世界地图 · 58 国 · 1200+ 省份 · 经济/政治/军事/后勤/谍报全系统</p>
+    <div class="row"><span class="muted" style="min-width:70px">选择国家</span><select id="pickCountry"></select></div>
+    <div class="row"><span class="muted" style="min-width:70px">剧本</span><select id="pickScenario"></select></div>
+    <div class="row"><span class="muted" style="min-width:70px">难度</span><select id="pickDifficulty"></select></div>
+    <div class="row"><label><input type="checkbox" id="pickIronman"> 铁人模式（每月自动存档、禁用控制台）</label></div>
+    <div class="row" style="margin-top:12px"><button data-start="1" style="padding:8px 22px;font-size:14px">开始游戏</button></div>
+    <p class="small" style="margin-top:12px">新手建议：德国 1936 — 先建民工、点工业国策、保持科研，再练编制与包围歼灭。</p>
+  </div>
+</div>
+
+<script src="src/core.js"></script>
+<script src="src/data-rules.js"></script>
+<script src="data/map-generated.js"></script>
+<script src="src/data-map.js"></script>
+<script src="src/world.js"></script>
+<script src="src/sim.js"></script>
+<script src="src/ai.js"></script>
+<script src="src/systems.js"></script>
+<script src="src/systems2.js"></script>
+<script src="src/save.js"></script>
+<script src="src/render.js"></script>
+<script src="src/ui.js"></script>
+<script src="src/main.js"></script>
+</body>
+</html>

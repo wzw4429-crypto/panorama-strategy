@@ -1,0 +1,31 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.pse.panorama'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.pse.panorama"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    buildTypes {
+        debug {
+            // 调试签名即可安装（侧载），保持构建最快
+        }
+        release {
+            minifyEnabled false
+            // CI 不产 release；如需上架请自备 keystore 并在此配置 signingConfig
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

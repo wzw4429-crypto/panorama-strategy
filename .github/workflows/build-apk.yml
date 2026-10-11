@@ -1,0 +1,51 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # 游戏 web 资源打进 APK assets（以仓库内 src/ data/ 为唯一真源，避免副本漂移）
+      - name: Prepare web assets
+        run: |
+          rm -rf android/app/src/main/assets/www
+          mkdir -p android/app/src/main/assets/www
+          cp -r index.html src data android/app/src/main/assets/www/
+          du -sh android/app/src/main/assets/www
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Ensure Android SDK packages
+        shell: bash
+        run: |
+          SM=$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -n1 || true)
+          if [ -n "$SM" ]; then
+            yes | "$SM" --licenses >/dev/null 2>&1 || true
+            "$SM" "platforms;android-34" "build-tools;34.0.0" >/dev/null || true
+          fi
+
+      - name: Build APK
+        run: gradle -p android assembleDebug --no-daemon
+
+      - name: Package artifact
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk panorama-strategy.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: panorama-strategy-apk
+          path: panorama-strategy.apk
