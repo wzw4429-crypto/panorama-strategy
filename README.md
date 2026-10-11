@@ -1,6 +1,6 @@
 # PSE · 全景式历史战略模拟引擎（可玩原型）
 
-> **真实地理世界地图**（Natural Earth 110m + Voronoi 省份剖分）· 58 个国家 · 1244 个省份 · 26 个海区
+> **真实地理世界地图**（Natural Earth 110m + Voronoi 省份剖分）· 59 个国家 · 1293 个省份 · 26 个海区
 > 时间粒度 = 1 游戏小时 · 无构建步骤 · 无第三方依赖 · 双击 `index.html` 或用 `node server.js` 起服务即可开玩
 
 ---
@@ -12,7 +12,7 @@ node server.js 8787        # 浏览器打开 http://127.0.0.1:8787/
 # 或直接双击 index.html
 ```
 
-开局界面可选 **国家（58 个，★ 为八大主要国家）**、**剧本（1936 / 1939）**、**难度（征召/标准/老兵）**、**铁人模式**。
+开局界面可选 **国家（59 个，★ 为八大主要国家）**、**剧本（1936 / 1939）**、**难度（征召/标准/老兵）**、**铁人模式**。
 
 ### 操作
 | 操作 | 作用 |
@@ -138,11 +138,11 @@ panorama/
 ├── server.js               零依赖静态服务器（node server.js [端口]，默认 8787）
 ├── data/
 │   ├── countries-110m.json  Natural Earth 110m TopoJSON（真实海岸线与国界）
-│   └── map-generated.js     生成产物：PSE.MAP_GEO（1244 省多边形 + 259 跨海通道 + 26 海区，748 KB）
+│   └── map-generated.js     生成产物：PSE.MAP_GEO（1293 省多边形 + 230 跨海通道 + 26 海区，670 KB）
 ├── tools/build-map.js      地图生成器：TopoJSON 解码 → bbox 裁剪 → Voronoi 剖分 → 邻接/海峡/地形/资源/人口
 ├── src/
 │   ├── core.js             定点数工具 / xorshift128+ RNG / 事件总线 / 时间 / stateHash
-│   ├── data-rules.js       平衡常量、58 国、营制、模板、装备、科技、20+ 国策树、事件、顾问、建筑
+│   ├── data-rules.js       平衡常量、59 国、营制、模板、装备、科技、20+ 国策树、事件、顾问、建筑
 │   ├── data-map.js         消费 MAP_GEO：多边形/投影/点选/海区/跨海通道
 │   ├── world.js            世界状态构建与序列化、师团、外交查询、效果执行器
 │   ├── sim.js              小时管线（移动→战斗→恢复→登陆结算）+ 日界（经济/生产/科研/政治/占领/外交/事件/AI）
@@ -172,7 +172,7 @@ node tools/build-map.js                               # 重新生成地图（约
 
 | 项 | 值 |
 |---|---|
-| 省份/国家/海区 | 1244 / 58 / 26，跨海通道 259，城市 163，港口 103 |
+| 省份/国家/海区 | 1293 / 59 / 26，跨海通道 230，城市 163，港口 102 |
 | 战斗宽度 | `80 + 20×min(2, 侧翼数)`；超出为预备队 |
 | 组织度伤害 | `atkEff / (1 + 平均防御×地形防御/100) / 40`，HP 伤害 ×2 |
 | 破防 | 突破超出防御部分 → 攻方伤害最高 ×1.6；防御压制最高 ×1.2 |
@@ -180,7 +180,7 @@ node tools/build-map.js                               # 重新生成地图（约
 | 补给档位 | 充足 ≥0.90 / 受限 ≥0.60 / 匮乏 >0 / 断供 =0（攻击系数 1.0/0.85/0.55/0.30） |
 | 产线换型 | 效率归零 + 冷却（坦克 30 / 飞机 45 / 舰船 60 / 其他 14 天） |
 | 稳定度影响 | 工厂产出 ×(0.6 + 0.4×稳定度)；投降阈值 ±10% |
-| 性能 | 1244 省 / 58 国：约 1200–2000 游戏小时/秒（1 游戏年 ≈ 4–7 秒） |
+| 性能 | 1293 省 / 59 国：约 1200–2000 游戏小时/秒（1 游戏年 ≈ 4–7 秒） |
 
 ---
 
@@ -191,3 +191,18 @@ node tools/build-map.js                               # 重新生成地图（约
 - 河流渡河惩罚未建模（多边形地图未含水系数据）；两栖/伞降有指令与惩罚但无专用登陆舰艇细分。
 - 部分小国（如葡萄牙 2 省）省份数偏少，属 Voronoi 目标数下限与几何面积共同作用的结果。
 - 完整设计规格（八大子系统、类图、战斗伪代码、国策树 DSL、ADR）见 `../grand-strategy-engine-design/`。
+
+---
+
+## 6. Android APK（GitHub Actions 自动构建）
+
+仓库自带 `.github/workflows/build-apk.yml`，每次 push `main` 自动构建：
+
+1. 把 `index.html + src/ + data/` 复制进 `android/app/src/main/assets/www/`（仓库内为唯一真源，避免副本漂移）
+2. JDK 17 + Gradle 8.9 + AGP 8.5.2 执行 `assembleDebug`
+3. 产物 `panorama-strategy.apk` 上传为 Actions Artifact（名 `panorama-strategy-apk`）
+
+**安装**：GitHub → Actions → “Build Android APK” → 最新运行 → Artifacts 下载解压 → 手机侧载（允许未知来源）。
+APK 为 WebView 壳（`android/…/MainActivity.java`）：横屏、常亮、localStorage 存档、**完全离线可玩**，无任何网络权限需求。
+
+本地构建（可选）：Android SDK 34 + JDK 17，`gradle -p android assembleDebug`（先手动把 web 资源拷入 `assets/www/`）。
