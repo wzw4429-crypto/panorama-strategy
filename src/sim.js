@@ -870,7 +870,7 @@
     }
   }
   function resourceName(k) {
-    return { oil: '石油', rubber: '橡胶', steel: '钢铁', aluminum: '铝', tungsten: '钨', chromium: '铬' }[k] || k;
+    return { coal: '煤', oil: '石油', rubber: '橡胶', steel: '钢铁', aluminum: '铝', tungsten: '钨', chromium: '铬' }[k] || k;
   }
   Sim.resourceName = resourceName;
 

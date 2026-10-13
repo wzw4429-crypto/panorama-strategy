@@ -122,8 +122,8 @@
     const divCount = c.divisions.length;
     // 目标规模：工业基础 × 战争状态（和平期也随紧张度扩军）
     const wanted = atWar
-      ? 18 + c.factories.mil * 3 + c.factories.civ * 0.5
-      : 10 + c.factories.civ * 0.6 + c.factories.mil * 1.5 * (0.5 + tension / 100);
+      ? 22 + c.factories.mil * 3.5 + c.factories.civ * 0.8
+      : 12 + c.factories.civ * 0.7 + c.factories.mil * 2.0 * (0.5 + tension / 100) + tension * 0.6;
     if (divCount >= wanted) return;
     if (c.manpower < 12) return;
     const stock = c.stockpile.infantry_equipment_1 || 0;
@@ -134,8 +134,15 @@
     if (atWar && c.templates.indexOf('armor') >= 0 && (c.stockpile.light_tank_1 || 0) > 400) tplId = 'armor';
     const cap = w.provinces[c.capital];
     if (!cap) return;
-    const d = PSE.World.createDivision(w, c.tag, tplId, cap.id, {});
-    if (d) c.ai.lastRecruit = w.hour;
+    // 批量征兵：和平每次 2 个 / 战时 3 个（装备见底时 createDivision 自动降为部分满员师）
+    const batch = atWar ? 3 : 2;
+    for (let i = 0; i < batch; i++) {
+      if (c.divisions.length >= wanted) break;
+      if ((c.stockpile.infantry_equipment_1 || 0) < 300) break;
+      const d = PSE.World.createDivision(w, c.tag, tplId, cap.id, {});
+      if (!d) break;
+      if (c.ai) c.ai.lastRecruit = w.hour;
+    }
   }
 
   // ============================================================
@@ -229,7 +236,7 @@
           const terr = PSE.Sim.TERRAIN[q.terrain] || PSE.Sim.TERRAIN.plain;
           const needRatio = 1.0 / Math.max(0.35, terr.atk);
           if (defs === 0 && ready.length >= 1) { bestTarget = nb; bestRatio = 99; break; }
-          if (ratio >= needRatio * 1.25 && ratio > bestRatio) { bestTarget = nb; bestRatio = ratio; }
+          if (ratio >= needRatio * 1.1 && ratio > bestRatio) { bestTarget = nb; bestRatio = ratio; }
         }
         if (bestTarget != null) {
           PSE.Sim.orderMove(w, ready, bestTarget);
@@ -314,15 +321,27 @@
   // ============================================================
   // 外交与战争
   // ============================================================
+  function shareBorder(w, a, b) {
+    // 两国领土（含占领）是否有省份相邻——决定能否真的打起来
+    for (const p of w.provinces) {
+      if (p.owner !== a && p.controller !== a) continue;
+      for (const nb of p.neighbors) {
+        const q = w.provinces[nb];
+        if (q && (q.owner === b || q.controller === b)) return true;
+      }
+    }
+    return false;
+  }
+
   function manageDiplomacy(w, c) {
     const aggr = (c.ai && c.ai.aggression) || 0.3;
     const atWar = PSE.World.inAnyWar(w, c.tag);
     const targets = (c.ai && c.ai.target) || [];
-    // 历史节奏门槛：1938 年前不主动扩张（除非全球紧张度已经很高）
+    // 历史节奏门槛：1937 年前基本不主动扩张（侵略性极强的 1936 年起即可，如日本）
     const y = PSE.Time.decompose(w.hour).year;
-    const earlyWarAllowed = y >= 1938 || w.tension > 40;
+    const earlyWarAllowed = y >= 1937 || w.tension > 35 || (y >= 1936 && aggr >= 0.8);
 
-    // 已完成的战争目标 → 宣战（评估实力）
+    // 已完成的战争目标 → 宣战（评估实力；侵略性越高越敢以弱打强）
     for (const t in c.wargoals) {
       if (!c.wargoals[t]) continue;
       const d = w.countries[t];
@@ -333,17 +352,20 @@
       const alliesPower = PSE.World.alliesOf(w, c.tag).reduce((s, a) => s + armyPower(w, w.countries[a]), 0);
       const theirAllies = PSE.World.alliesOf(w, t).reduce((s, a) => s + armyPower(w, w.countries[a]), 0);
       const ratio = (myPower + alliesPower) / Math.max(1, theirPower + theirAllies);
-      if (ratio > 1.15 + (1 - aggr) * 0.6 && (earlyWarAllowed || atWar)) {
+      if (ratio > 0.85 + (1 - aggr) * 0.3 && (earlyWarAllowed || atWar)) {
         PSE.Diplo.declareWar(w, c.tag, t, {});
       }
       break;
     }
 
-    // 制造借口
-    if (!atWar && earlyWarAllowed && !c.justifying && aggr > 0.4 && c.pp > 80 && targets.length) {
-      // 选最弱/关系最差的邻国
+    // 制造借口（战时也可继续造，保持扩张压力，最多同时挂 2 个）
+    const nGoals = Object.keys(c.wargoals).length;
+    if (earlyWarAllowed && !c.justifying && aggr >= 0.4 && c.pp > 60 && targets.length && (!atWar || nGoals < 2)) {
+      const myPower = armyPower(w, c);
+      // 选目标：按 ai.target 列表优先级（靠前越优先）+ 关系差 + 实力弱
       let best = null, bestScore = -1e9;
-      for (const t of targets) {
+      for (let i = 0; i < targets.length; i++) {
+        const t = targets[i];
         const d = w.countries[t];
         if (!d || d.capitulated) continue;
         if (c.wargoals[t] || PSE.World.areAtWar(w, c.tag, t)) continue;
@@ -351,10 +373,15 @@
         if (PSE.World.isAllied(w, c.tag, t)) continue;
         const rel = c.relations[t] || 0;
         const power = armyPower(w, d);
-        const score = -rel - power * 0.01;
+        // 跨洋/不相邻目标：需以绝对实力碾压（2 倍）才值得造借口，
+        // 否则打不到一起，只会空转成互相断贸易的"纸上战争"
+        if (!shareBorder(w, c.tag, t) && myPower < power * 2.0) continue;
+        const score = (targets.length - i) * 40 - rel - power * 0.005;
         if (score > bestScore) { bestScore = score; best = t; }
       }
-      if (best && w.tension > 8) PSE.Cmd.justifyWarGoalFor(w, c, best);
+      // 紧张度门槛随侵略性放宽：好战者低紧张度即可动手
+      const tensionGate = Math.max(2, 10 - aggr * 12);
+      if (best && w.tension > tensionGate) PSE.Cmd.justifyWarGoalFor(w, c, best);
     }
 
     // 法案：战时提高动员

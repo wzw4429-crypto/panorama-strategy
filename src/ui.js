@@ -295,7 +295,7 @@
       const eq = PSE.EQUIPMENT[l.equipId];
       const out = (l.output || 0).toFixed(1);
       const stock = Math.floor(c.stockpile[l.equipId] || 0);
-      h += '<div class="row">' +
+      h += '<div class="row wrap prodRow">' +
         '<span class="eqName">' + eq.name + '</span>' +
         '<button class="mini" data-prod-dec="' + l.id + '">−</button>' +
         '<span class="num">' + l.factories + '</span>' +
@@ -680,7 +680,7 @@
       const hasGoal = !!(c.wargoals && c.wargoals[t]);
       const isPact = PSE.World.isPact(w, c.tag, t);
       const isPuppet = o.puppetOf === c.tag;
-      h += '<div class="row wrap"><span class="eqName">' + o.name + (o.capitulated ? '(已投降)' : '') + '</span>' +
+      h += '<div class="row wrap"><span class="eqName">' + (o.name || PSE.COUNTRY_NAME[t] || t) + (o.capitulated ? '(已投降)' : '') + '</span>' +
         '<span class="muted">' + PSE.IDEOLOGY_NAME[o.ideology] + '｜关系 ' + rel + '｜师 ' + o.divisions.length + '</span>' +
         (allied ? '<span class="ok">同盟</span>' : atWar ? '<span class="alert">交战</span>' : o.capitulated ? '' :
           '<button class="mini" data-improve="' + t + '">改善关系</button>' +

@@ -40,7 +40,7 @@
   // ============================================================
   PSE.COUNTRY_NAME = {
     GER: '德国', SOV: '苏联', ENG: '英国', FRA: '法国', ITA: '意大利', POL: '波兰',
-    CZE: '捷克斯洛伐克', AUS: '奥地利', HUN: '匈牙利', ROM: '罗马尼亚', YUG: '南斯拉夫',
+    CZE: '捷克斯洛伐克', AUT: '奥地利', HUN: '匈牙利', ROM: '罗马尼亚', YUG: '南斯拉夫',
     BUL: '保加利亚', GRE: '希腊', TUR: '土耳其', SPA: '西班牙', POR: '葡萄牙',
     SWI: '瑞士', LOW: '低地国家', DEN: '丹麦', SWE: '瑞典', NOR: '挪威', FIN: '芬兰',
     BAL: '波罗的海三国', NEU: '中立区',
@@ -54,7 +54,7 @@
 
   function C(tag, o) {
     return Object.assign({
-      tag, name: PSE.COUNTRY_NAME[tag], ideology: 'neutral', regime: 'parliamentary',
+      tag, name: PSE.COUNTRY_NAME[tag] || tag, ideology: 'neutral', regime: 'parliamentary',
       color: '#888', capital: null, factories: { civ: 2, mil: 1, dock: 0 },
       pp: 50, stability: 0.6, warSupport: 0.4, laws: { conscription: 1, economy: 1, trade: 1, training: 1 },
       researchSlots: 3, army: [], focusTree: 'generic', ai: { aggression: 0.3, expand: 0.3 },
@@ -68,7 +68,7 @@
       ideology: 'fascist', regime: 'military_dictatorship', color: '#5b6e8c', isMajor: true,
       factories: { civ: 24, mil: 8, dock: 4 }, pp: 60, stability: 0.65, warSupport: 0.55,
       researchSlots: 4, focusTree: 'GER', tensionWeight: 2.0,
-      ai: { aggression: 0.85, expand: 0.9, target: ['POL', 'FRA', 'SOV', 'CZE', 'AUS'] },
+      ai: { aggression: 0.85, expand: 0.9, target: ['POL', 'FRA', 'SOV', 'CZE', 'AUT'] },
       templates: ['inf_9_1', 'inf_7_2', 'armor', 'mot', 'garrison', 'mount'],
       army: [['inf_9_1', 18], ['mot', 2], ['armor', 3], ['garrison', 2]],
     }),
@@ -133,7 +133,7 @@
   // 1b. 世界诸国（1936 年历史口径：工业/兵力/政体/战略倾向）
   // ============================================================
   Object.assign(PSE.COUNTRY_NAME, {
-    USA: '美国', JAP: '日本', CHI: '中国', AUT: '奥地利', IRE: '爱尔兰', ICE: '冰岛',
+    USA: '美国', AUS: '澳大利亚', JAP: '日本', CHI: '中国', AUT: '奥地利', IRE: '爱尔兰', ICE: '冰岛',
     CAN: '加拿大', MEX: '墨西哥', BRA: '巴西', ARG: '阿根廷', CHL: '智利', PER: '秘鲁',
     VEN: '委内瑞拉', COL: '哥伦比亚', ECU: '厄瓜多尔', BOL: '玻利维亚', PAR: '巴拉圭',
     URU: '乌拉圭', CUB: '古巴', HAI: '海地', DOM: '多米尼加', GUA: '危地马拉',
@@ -407,7 +407,7 @@
       nodes: [
         F('GER_rearm', '重整军备', 35, [], [{ op: 'ws', v: 0.10 }, { op: 'equip', id: 'infantry_equipment_1', n: 6000 }, { op: 'pp', v: 20 }], { x: 1, y: 0 }),
         F('GER_rhineland', '莱茵兰再军事化', 28, ['GER_rearm'], [{ op: 'tension', v: 5 }, { op: 'pp', v: 15 }, { op: 'event', id: 'EVT_rhineland' }], { x: 2, y: 0 }),
-        F('GER_anschluss', '合并奥地利', 42, ['GER_rhineland'], [{ op: 'tension', v: 8 }, { op: 'annex', tag: 'AUS' }, { op: 'event', id: 'EVT_anschluss' }], { x: 3, y: 0, hidden: { date: [1938, 1, 1] } }),
+        F('GER_anschluss', '合并奥地利', 42, ['GER_rhineland'], [{ op: 'tension', v: 8 }, { op: 'annex', tag: 'AUT' }, { op: 'event', id: 'EVT_anschluss' }], { x: 3, y: 0, hidden: { date: [1938, 1, 1] } }),
         F('GER_sudeten', '苏台德危机', 35, ['GER_anschluss'], [{ op: 'tension', v: 10 }, { op: 'event', id: 'EVT_munich' }], { x: 4, y: 0 }),
         F('GER_danzig', '但泽或战争', 42, ['GER_sudeten'], [{ op: 'tension', v: 15 }, { op: 'wargoal', tag: 'POL' }, { op: 'event', id: 'EVT_danzig' }], { x: 5, y: 0 }),
         F('GER_four_year', '四年计划', 210, ['GER_rearm'], [{ op: 'factory', kind: 'civ', n: 4 }, { op: 'mod', key: 'milOutput', v: 0.05 }], { x: 1, y: 1 }),
