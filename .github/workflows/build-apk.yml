@@ -16,7 +16,7 @@ jobs:
       # TypeScript 编译：src/*.ts 为唯一真源，emit 出 src/*.js 后再打包
       - name: Build TypeScript
         run: |
-          npx -y typescript@5.6.3 tsc -p tsconfig.json
+          npx -y -p typescript@5.6.3 tsc -p tsconfig.json
           echo "---- emit 产物 ----"
           ls -la src/*.js | head -20
 
