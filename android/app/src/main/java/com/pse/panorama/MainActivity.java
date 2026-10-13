@@ -18,6 +18,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // 封面主题 → 游戏主题（windowBackground 从启动封面切为纯色，无闪烁）
+        setTheme(R.style.Theme_Panorama);
         // 策略游戏：亮屏常驻
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 

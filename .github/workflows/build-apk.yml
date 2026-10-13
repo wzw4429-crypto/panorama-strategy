@@ -20,6 +20,20 @@ jobs:
           echo "---- emit 产物 ----"
           ls -la src/*.js | head -20
 
+      # 固定签名：从 Secret 解码密钥库（PKCS#12），密码走环境变量
+      - name: Decode signing keystore
+        env:
+          PANORAMA_KEYSTORE_B64: ${{ secrets.PANORAMA_KEYSTORE_B64 }}
+          PANORAMA_KEYSTORE_PASSWORD: ${{ secrets.PANORAMA_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$PANORAMA_KEYSTORE_B64" ]; then
+            echo "::error::缺少 secret PANORAMA_KEYSTORE_B64（固定签名密钥库 base64）"
+            exit 1
+          fi
+          echo "$PANORAMA_KEYSTORE_B64" | base64 -d > android/app/pse-release.p12
+          ls -la android/app/pse-release.p12
+          echo "密钥库大小校验通过"
+
       # 游戏 web 资源打进 APK assets（以仓库内 src/ data/ 为唯一真源，避免副本漂移）
       - name: Prepare web assets
         run: |
@@ -46,11 +60,23 @@ jobs:
             "$SM" "platforms;android-34" "build-tools;34.0.0" >/dev/null || true
           fi
 
-      - name: Build APK
-        run: gradle -p android assembleDebug --no-daemon
+      # release 构建 + 固定签名（老版本可直接覆盖安装升级）
+      - name: Build signed release APK
+        env:
+          PANORAMA_KEYSTORE_PASSWORD: ${{ secrets.PANORAMA_KEYSTORE_PASSWORD }}
+        run: gradle -p android assembleRelease --no-daemon
+
+      - name: Verify signature
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          ls -la "$APK"
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/34.0.0/apksigner 2>/dev/null || true)
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs "$APK" | head -5
+          fi
 
       - name: Package artifact
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk panorama-strategy.apk
+        run: cp android/app/build/outputs/apk/release/app-release.apk panorama-strategy.apk
 
       - uses: actions/upload-artifact@v4
         with:

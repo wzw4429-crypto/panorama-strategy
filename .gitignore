@@ -13,3 +13,6 @@ local.properties
 apk-out/
 *.zip
 *.apk
+android/app/*.p12
+android/app/*.keystore
+keystore/

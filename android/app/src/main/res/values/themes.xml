@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 游戏主题：深色全屏，无动作栏 -->
+    <style name="Theme.Panorama" parent="@android:style/Theme.Material.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@color/splash_bg</item>
+    </style>
+    <!-- 启动封面：冷启动期间显示（MainActivity onCreate 里会切回游戏主题） -->
+    <style name="Theme.Panorama.Splash" parent="Theme.Panorama">
+        <item name="android:windowBackground">@drawable/splash_background</item>
+    </style>
+</resources>

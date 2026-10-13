@@ -102,6 +102,7 @@
 
     canvas.addEventListener('mousedown', (e: any) => {
       if (e.button !== 0) return;
+      if (touchActive > 0) return;      // 触屏进行中：忽略模拟鼠标事件，避免双重平移
       dragging = true; dragMoved = 0; lastX = e.clientX; lastY = e.clientY;
     });
     root.addEventListener('mouseup', () => { dragging = false; });
@@ -162,6 +163,62 @@
       const [px, py] = localPos(e);
       PSE.Render.zoomAt(px, py, e.deltaY < 0 ? 1.18 : 1 / 1.18);
     }, { passive: false });
+
+    // —— 触屏（手机/平板）：单指拖动=平移，双指捏合=缩放，轻点=选省，双击=居中放大 ——
+    let touchActive = 0, pinchDist = 0, lastTap = 0, lastTapX = 0, lastTapY = 0;
+    const tPos = (t) => { const r = canvas.getBoundingClientRect(); return [t.clientX - r.left, t.clientY - r.top]; };
+
+    canvas.addEventListener('touchstart', (e: any) => {
+      touchActive = e.touches.length;
+      if (e.touches.length === 1) {
+        lastX = e.touches[0].clientX; lastY = e.touches[0].clientY; dragMoved = 0;
+      } else if (e.touches.length === 2) {
+        const [ax, ay] = tPos(e.touches[0]), [bx, by] = tPos(e.touches[1]);
+        pinchDist = Math.hypot(bx - ax, by - ay) || 1;
+      }
+    }, { passive: true });
+
+    canvas.addEventListener('touchmove', (e: any) => {
+      touchActive = e.touches.length;
+      if (e.touches.length === 1) {
+        const dx = e.touches[0].clientX - lastX, dy = e.touches[0].clientY - lastY;
+        if (dx || dy) {
+          dragMoved += Math.abs(dx) + Math.abs(dy);
+          PSE.Render.pan(dx, dy);
+          lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
+        }
+        e.preventDefault();               // 阻止页面滚动/下拉刷新
+      } else if (e.touches.length >= 2) {
+        const [ax, ay] = tPos(e.touches[0]), [bx, by] = tPos(e.touches[1]);
+        const d = Math.hypot(bx - ax, by - ay) || 1;
+        if (pinchDist > 0) PSE.Render.zoomAt((ax + bx) / 2, (ay + by) / 2, d / pinchDist);
+        pinchDist = d;
+        e.preventDefault();
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', (e: any) => {
+      if (e.touches.length === 0) { touchActive = 0; pinchDist = 0; }
+      if (e.changedTouches.length !== 1 || dragMoved >= 8) return;   // 拖动不触发点选
+      const t = e.changedTouches[0];
+      const [px, py] = tPos(t);
+      const ll = PSE.Render.screenToLonLat(px, py);
+      const p = PSE.MapData.pickProvince(ll[0], ll[1]);
+      const now = Date.now();
+      if (now - lastTap < 300 && Math.hypot(t.clientX - lastTapX, t.clientY - lastTapY) < 30) {
+        // 双击：居中并放大
+        if (p) PSE.Render.centerOn(p.cx, p.cy, Math.max(6, PSE.Render.cam.zoom));
+        lastTap = 0;
+      } else {
+        lastTap = now; lastTapX = t.clientX; lastTapY = t.clientY;
+        if (p) {
+          PSE.Render.selectedProv = p.id;
+          PSE.UI.renderProvince(Game, p.id);
+          PSE.UI.bindProvince(Game);
+        }
+      }
+      e.preventDefault();                 // 阻止合成 click，避免与鼠标逻辑重复触发
+    });
 
     // —— 事件弹窗：委托绑定（避免 innerHTML 重绘后按钮失效）——
     const modal = (document.getElementById('eventModal') as any);

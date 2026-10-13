@@ -205,11 +205,25 @@ node tools/build-map.js                               # 重新生成地图（约
 
 仓库自带 `.github/workflows/build-apk.yml`，每次 push `main` 自动构建：
 
-1. 把 `index.html + src/ + data/` 复制进 `android/app/src/main/assets/www/`（仓库内为唯一真源，避免副本漂移）
-2. JDK 17 + Gradle 8.9 + AGP 8.5.2 执行 `assembleDebug`
-3. 产物 `panorama-strategy.apk` 上传为 Actions Artifact（名 `panorama-strategy-apk`）
+1. `tsc` 编译 TypeScript → emit `src/*.js`
+2. 从 Secret 解码固定签名密钥库 `pse-release.p12`（PKCS#12 / RSA 2048 / 别名 `pse`）
+3. 把 `index.html + src/ + data/` 复制进 `android/app/src/main/assets/www/`（仓库内为唯一真源，避免副本漂移）
+4. JDK 17 + Gradle 8.9 + AGP 8.5.2 执行 `assembleRelease`（固定签名）并验签
+5. 产物 `panorama-strategy.apk` 上传为 Actions Artifact（名 `panorama-strategy-apk`）
 
 **安装**：GitHub → Actions → “Build Android APK” → 最新运行 → Artifacts 下载解压 → 手机侧载（允许未知来源）。
 APK 为 WebView 壳（`android/…/MainActivity.java`）：横屏、常亮、localStorage 存档、**完全离线可玩**，无任何网络权限需求。
+启动带封面（金色地球 Logo，深色底），图标为自适应图标（API 26+）/ 矢量兜底（API 24-25）。
+触屏操作：单指拖动平移、双指捏合缩放、轻点选省、双击居中放大；UI 已按横屏手机（如红米 K80 1067×480 CSS px）适配。
+
+**固定签名说明**
+- 密钥库**不在仓库内**（`.gitignore` 排除 `*.p12`），保存在 GitHub Secrets：`PANORAMA_KEYSTORE_B64`（base64）+ `PANORAMA_KEYSTORE_PASSWORD`
+- 本地备份位置：`android/app/pse-release.p12`（密码 `panorama2026`，别名 `pse`，有效期 10000 天）——**请务必另行备份**，丢失后老用户无法覆盖升级（只能卸载重装）
+- 本地构建 release：把 p12 放到 `android/app/` 并设环境变量 `PANORAMA_KEYSTORE_PASSWORD`，`gradle -p android assembleRelease` 即自动签名
+- 重新生成密钥库（会改变签名身份，老用户需卸载重装）：
+  ```bash
+  openssl req -x509 -newkey rsa:2048 -keyout k.pem -out c.pem -days 10000 -nodes -subj "/CN=Panorama Strategy/O=PSE/C=CN"
+  openssl pkcs12 -export -in c.pem -inkey k.pem -out android/app/pse-release.p12 -name pse -passout pass:<密码>
+  ```
 
 本地构建（可选）：Android SDK 34 + JDK 17，`gradle -p android assembleDebug`（先手动把 web 资源拷入 `assets/www/`）。
