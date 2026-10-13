@@ -20,17 +20,17 @@ android {
     // 密码走环境变量 PANORAMA_KEYSTORE_PASSWORD。本地构建时把 p12 放到 app/ 目录即可自动签名。
     def ksFile = file("pse-release.p12")
     def ksPass = System.getenv("PANORAMA_KEYSTORE_PASSWORD") ?: (project.findProperty("panoramaStorePassword") ?: "")
-    def keyPass = System.getenv("PANORAMA_KEY_PASSWORD") ?: ksPass
-    def keyAlias = System.getenv("PANORAMA_KEY_ALIAS") ?: "pse"
+    def ksKeyPass = System.getenv("PANORAMA_KEY_PASSWORD") ?: ksPass
+    def ksAlias = System.getenv("PANORAMA_KEY_ALIAS") ?: "pse"
 
     signingConfigs {
         release {
             if (ksFile.exists() && ksPass) {
-                storeFile ksFile
-                storePassword ksPass
-                keyAlias keyAlias
-                keyPassword keyPass
-                storeType "PKCS12"
+                storeFile = ksFile
+                storePassword = ksPass
+                keyAlias = ksAlias
+                keyPassword = ksKeyPass
+                storeType = "PKCS12"
             }
         }
     }
@@ -42,7 +42,7 @@ android {
         release {
             minifyEnabled false
             if (ksFile.exists() && ksPass) {
-                signingConfig signingConfigs.release
+                signingConfig = signingConfigs.release
             }
             // 无密钥库时产出未签名 release（CI 必带密钥库，不会走到）
         }
