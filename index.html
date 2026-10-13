@@ -114,6 +114,35 @@ window.addEventListener('error', function (e) {
   @media (pointer: coarse) and (orientation: landscape) {
     .hintText { display: none; }
   }
+  /* —— 竖屏/窄屏手机（如 K80 竖屏 480×1067）：地图在上、面板在下，顶栏极限压缩 —— */
+  @media (max-width: 760px), (orientation: portrait) and (max-width: 900px) {
+    #app { grid-template-rows: auto auto 1fr; }
+    #main { grid-template-columns: 1fr; grid-template-rows: minmax(180px, 1fr) auto; }
+    #side { border-left: none; border-top: 1px solid var(--line); max-height: 48vh; }
+    #top { padding: 2px 6px; gap: 4px; }
+    #top .k { font-size: 9px; }
+    #top .v { font-size: 11px; }
+    #countryName { font-size: 12px; }
+    #ideology { display: none; }
+    #tensionWrap { display: none; }
+    #top .opt { display: none; }                 /* 信用点/供给系数：窄屏让位（后勤面板里有） */
+    #top .cell + .cell { padding-left: 6px; }
+    #resources { gap: 3px; }
+    #resources .res { line-height: 14px; padding: 0 4px; }
+    #toolbar { padding: 2px 6px; gap: 3px; flex-wrap: nowrap; overflow-x: auto; }
+    #toolbar .group { flex-wrap: nowrap; }
+    #toolbar .sep { display: none; }
+    #tabs { padding: 3px 5px; flex-wrap: nowrap; overflow-x: auto; }
+    #tabs button { min-height: 30px; padding: 3px 7px; font-size: 12px; }
+    #provinceInfo { max-height: 84px; padding: 3px 7px; }
+    #panelBody { padding: 5px 7px; }
+    #log { font-size: 10px; padding: 3px 7px; }
+    .hintText { display: none; }
+    #startBox { width: min(560px, 94vw); max-height: 92vh; overflow: auto; padding: 14px 18px; }
+    #startBox h1 { font-size: 19px; }
+    #eventBox, #peaceBox { max-width: 92vw; max-height: 88vh; overflow: auto; padding: 12px 16px; }
+    #gameOverBox { max-width: 92vw; padding: 16px 20px; }
+  }
   /* —— 沉浸模式（全屏地图）：隐藏顶部三行与侧栏，地图吃满屏幕 —— */
   #fsExit { display: none; position: fixed; right: 12px; top: 12px; z-index: 300;
     opacity: .55; border-radius: 4px; }
@@ -205,11 +234,11 @@ window.addEventListener('error', function (e) {
     <div class="cell"><span class="k">稳定</span><span class="v" id="stability">0%</span></div>
     <div class="cell"><span class="k">战争支持</span><span class="v" id="warSupport">0%</span></div>
     <div class="cell"><span class="k">工厂(民/军/坞)</span><span class="v" id="factories">0</span></div>
-    <div class="cell"><span class="k">信用点</span><span class="v" id="credits">0</span></div>
+    <div class="cell opt"><span class="k">信用点</span><span class="v" id="credits">0</span></div>
     <div class="cell"><span class="k">紧张度</span><span class="v" id="tension">0</span>
       <div id="tensionWrap"><div id="tensionBar"></div></div></div>
     <div class="cell" id="resources"></div>
-    <div class="cell"><span class="k" id="resourceFactor">供给系数 100%</span></div>
+    <div class="cell opt"><span class="k" id="resourceFactor">供给系数 100%</span></div>
     <div class="cell"><span class="k">陆军</span><span class="v" id="armyInfo">—</span></div>
     <div class="cell" id="alerts"></div>
   </div>

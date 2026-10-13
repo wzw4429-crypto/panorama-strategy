@@ -37,6 +37,17 @@
     R.showLabels = true;
     R.resize();
     if (root.addEventListener) root.addEventListener('resize', R.resize);
+    // 视口变化兜底：旋转 / 分屏 / MIUI 不触发 window resize 的场景，靠 ResizeObserver 重算画布
+    if (root.ResizeObserver && canvas.parentElement) {
+      let lastW = 0, lastH = 0;
+      const ro = new root.ResizeObserver(() => {
+        if (canvas.clientWidth !== lastW || canvas.clientHeight !== lastH) {
+          lastW = canvas.clientWidth; lastH = canvas.clientHeight;
+          R.resize();
+        }
+      });
+      ro.observe(canvas.parentElement);
+    }
   };
 
   R.resize = function () {

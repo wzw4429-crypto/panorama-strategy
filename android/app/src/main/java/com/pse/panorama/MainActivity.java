@@ -57,4 +57,15 @@ public class MainActivity extends Activity {
         if (web != null && web.canGoBack()) web.goBack();
         else super.onBackPressed();
     }
+
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // 横竖屏切换（configChanges 已声明不重走 onCreate）：强制 WebView 重新布局，
+        // 避免个别 ROM 上视口尺寸不更新导致画布尺寸错乱
+        if (web != null) {
+            web.requestLayout();
+            web.invalidate();
+        }
+    }
 }
