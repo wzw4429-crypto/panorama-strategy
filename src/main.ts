@@ -246,6 +246,20 @@
     document.querySelectorAll('[data-layer]').forEach((b: any) => b.onclick = () => PSE.UI.setLayer(b.dataset.layer, Game));
     document.querySelectorAll('[data-tab]').forEach((b: any) => b.onclick = () => PSE.UI.setTab(b.dataset.tab, Game));
 
+    // —— 沉浸模式：全屏地图（手机横屏省空间）——
+    const appEl = (document.getElementById('app') as any);
+    function toggleFullscreen() {
+      if (!appEl) return;
+      appEl.classList.toggle('fs');
+      // 布局变化不会触发 window resize，必须手动重算画布并重绘
+      PSE.Render.resize();
+      PSE.Render.draw(0);
+    }
+    const btnFs = (document.getElementById('btnFs') as any);
+    if (btnFs) btnFs.onclick = toggleFullscreen;
+    const fsExit = (document.getElementById('fsExit') as any);
+    if (fsExit) fsExit.onclick = toggleFullscreen;
+
     document.addEventListener('keydown', (e: any) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
       const w = Game.world;
@@ -260,6 +274,8 @@
         const layers = PSE.Render.LAYERS;
         const cur = layers.indexOf(PSE.Render.layer || 'political');
         PSE.UI.setLayer(layers[(cur + 1) % layers.length], Game);
+      } else if (e.key === 'f' || e.key === 'F') {
+        toggleFullscreen();
       } else if (e.key === 's' || e.key === 'S') {
         PSE.UI.save(Game);
       } else if (e.key === '+' || e.key === '=') {
@@ -347,6 +363,10 @@
       if (focus && PSE.MapData.provincesById) {
         const caps = Game.world.provinces.filter((p) => p.name.indexOf(focus) >= 0);
         if (caps.length) PSE.Render.centerOn(caps[0].cx, caps[0].cy, zoom || 6);
+      }
+      if (q.get('fs')) {
+        const appEl = (document.getElementById('app') as any);
+        if (appEl) { appEl.classList.add('fs'); PSE.Render.resize(); }
       }
       PSE.UI.toast('自动开局：' + PSE.COUNTRIES[auto].name);
     }

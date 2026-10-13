@@ -81,16 +81,52 @@ window.addEventListener('error', function (e) {
     #tabs button { min-height: 38px; padding: 6px 10px; }
     #top .cell { padding-top: 1px; padding-bottom: 1px; }
   }
-  /* —— 横屏矮屏（如红米 K80 横屏 ~1067×480 CSS px）：侧栏收窄、日志压缩 —— */
+  /* —— 横屏矮屏（如红米 K80 横屏 ~1067×480 CSS px）：极限压缩顶部三行，地图最大化 —— */
   @media (max-height: 560px) and (orientation: landscape) {
-    #main { grid-template-columns: 1fr 330px; }
-    #side { grid-template-rows: auto auto 1fr 84px; }
-    #top { padding: 3px 8px; gap: 8px; }
+    #app { grid-template-rows: auto auto 1fr; }
+    #top { padding: 2px 8px; gap: 6px; }
+    #top .k { font-size: 10px; }
+    #top .v { font-size: 11px; }
+    #countryName { font-size: 12px; }
+    #ideology { display: none; }                /* 政体小字：手机上让位 */
+    #tensionWrap { display: none; }             /* 紧张度小条：保留数字即可 */
     #top .cell + .cell { padding-left: 8px; }
-    #toolbar { padding: 3px 8px; }
-    #tabs { padding: 4px 6px; }
-    #log { font-size: 10px; padding: 4px 8px; }
+    #resources { gap: 3px; }
+    #resources .res { line-height: 14px; padding: 0 4px; }
+    #toolbar { padding: 2px 8px; gap: 4px; flex-wrap: nowrap; overflow-x: auto; }
+    #toolbar .group { flex-wrap: nowrap; }
+    #toolbar .sep { display: none; }
+    #tabs { padding: 3px 6px; flex-wrap: nowrap; overflow-x: auto; }
+    #tabs button { min-height: 28px; padding: 3px 8px; font-size: 12px; }
+    #main { grid-template-columns: 1fr 320px; }
+    #side { grid-template-rows: auto auto 1fr 56px; }
+    #provinceInfo { max-height: 96px; padding: 4px 8px; }
+    #panelBody { padding: 6px 8px; }
+    #log { font-size: 10px; padding: 3px 8px; }
+    .hintText { display: none; }                 /* 操作提示：手机上占宽度，隐藏 */
+    /* 弹窗在矮屏紧凑化 */
+    #startBox { width: min(560px, 94vw); max-height: 92vh; overflow: auto; padding: 14px 18px; }
+    #startBox h1 { font-size: 19px; }
+    #eventBox, #peaceBox { max-width: 92vw; max-height: 88vh; overflow: auto; padding: 12px 16px; }
+    #gameOverBox { max-width: 92vw; padding: 16px 20px; }
   }
+  /* 触屏横屏（窄一点也算）：提示文字同样隐藏 */
+  @media (pointer: coarse) and (orientation: landscape) {
+    .hintText { display: none; }
+  }
+  /* —— 沉浸模式（全屏地图）：隐藏顶部三行与侧栏，地图吃满屏幕 —— */
+  #fsExit { display: none; position: fixed; right: 12px; top: 12px; z-index: 300;
+    opacity: .55; border-radius: 4px; }
+  #fsExit:hover { opacity: 1; }
+  #app.fs #top, #app.fs #toolbar, #app.fs #side { display: none !important; }
+  /* 顶行隐藏后 #main 会自动流入第 1 行（auto 轨道=0）→ 必须把网格改成单行 1fr；
+     同时地图绝对定位钉满，双保险避免 height:100% 循环依赖 */
+  #app.fs { grid-template-rows: 1fr; }
+  #app.fs #main { position: relative; }
+  #app.fs #mapWrap { position: absolute; inset: 0; }
+  #app.fs #main { grid-template-columns: 1fr; }
+  #app.fs #fsExit { display: block; }
+  #btnFs { font-weight: 700; letter-spacing: 1px; }
   #side { display: grid; grid-template-rows: auto auto 1fr 120px; border-left: 1px solid var(--line); overflow: hidden; background: var(--panel); min-height: 0; }
   #provinceInfo { padding: 7px 10px; border-bottom: 1px solid var(--line); max-height: 210px; overflow: auto; }
   #tabs { display: flex; gap: 3px; padding: 5px 8px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
@@ -214,10 +250,11 @@ window.addEventListener('error', function (e) {
       <button data-tab="logistics">后勤</button>
     </div>
     <div class="sep"></div>
-    <div class="group">
-      <span class="muted small">拖动平移 · 滚轮缩放 · 右键下令 · 空格暂停 · 1-5 速度 · L 切图层 · S 存档 · ~ 控制台</span>
+    <div class="group hintText">
+      <span class="muted small">拖动平移 · 滚轮/双指缩放 · 右键下令 · 空格暂停 · 1-5 速度 · L 切图层 · F 全屏 · S 存档 · ~ 控制台</span>
     </div>
     <div class="group" style="margin-left:auto">
+      <button id="btnFs" title="沉浸模式：全屏地图（F）">⛶</button>
       <button id="btnHelp" onclick="document.getElementById('helpBox').classList.toggle('hidden')">玩法说明</button>
       <button onclick="document.getElementById('console').classList.toggle('hidden')">控制台</button>
     </div>
@@ -300,5 +337,6 @@ window.addEventListener('error', function (e) {
 <script src="src/render.js"></script>
 <script src="src/ui.js"></script>
 <script src="src/main.js"></script>
+<button id="fsExit" title="退出沉浸模式（F）">✕ 退出全屏</button>
 </body>
 </html>

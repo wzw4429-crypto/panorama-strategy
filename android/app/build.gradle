@@ -28,7 +28,7 @@ android {
             if (ksFile.exists() && ksPass) {
                 storeFile ksFile
                 storePassword ksPass
-                this.keyAlias keyAlias
+                keyAlias keyAlias
                 keyPassword keyPass
                 storeType "PKCS12"
             }
