@@ -13,6 +13,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # TypeScript 编译：src/*.ts 为唯一真源，emit 出 src/*.js 后再打包
+      - name: Build TypeScript
+        run: |
+          npx -y typescript@5.6.3 tsc -p tsconfig.json
+          echo "---- emit 产物 ----"
+          ls -la src/*.js | head -20
+
       # 游戏 web 资源打进 APK assets（以仓库内 src/ data/ 为唯一真源，避免副本漂移）
       - name: Prepare web assets
         run: |

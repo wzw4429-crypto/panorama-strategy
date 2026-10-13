@@ -141,18 +141,18 @@ panorama/
 │   └── map-generated.js     生成产物：PSE.MAP_GEO（1293 省多边形 + 230 跨海通道 + 26 海区，670 KB）
 ├── tools/build-map.js      地图生成器：TopoJSON 解码 → bbox 裁剪 → Voronoi 剖分 → 邻接/海峡/地形/资源/人口
 ├── src/
-│   ├── core.js             定点数工具 / xorshift128+ RNG / 事件总线 / 时间 / stateHash
-│   ├── data-rules.js       平衡常量、59 国、营制、模板、装备、科技、20+ 国策树、事件、顾问、建筑
-│   ├── data-map.js         消费 MAP_GEO：多边形/投影/点选/海区/跨海通道
-│   ├── world.js            世界状态构建与序列化、师团、外交查询、效果执行器
-│   ├── sim.js              小时管线（移动→战斗→恢复→登陆结算）+ 日界（经济/生产/科研/政治/占领/外交/事件/AI）
-│   ├── ai.js               22+ 国 AI：国策评分、生产再平衡、扩军、战线与进攻、空军前移、宣战节奏
-│   ├── systems.js          装备设计器、装备贸易与租借、海军舰队与海战、空军任务、间谍、傀儡、燃料、核武
-│   ├── systems2.js         煤炭、决议与民族精神、将领/集团军/前线计划、学说精通度、阵营、外交行动、和平会议、自制度、难度、剧本、控制台、MOD
-│   ├── save.js             localStorage 存档（Node 下降级内存）+ 铁人自动存档
-│   ├── render.js           Canvas 多边形渲染 + 7 图层（补给管网 / 战线折线 / 海区航线 / 空域）
-│   ├── ui.js               顶栏、10 个面板、省份详情、事件与和平弹窗、日志、toast
-│   └── main.js             主循环、速度控制、摄像机输入、快捷键、控制台、自动存档
+│   ├── core.ts             定点数工具 / xorshift128+ RNG / 事件总线 / 时间 / stateHash
+│   ├── data-rules.ts       平衡常量、59 国、营制、模板、装备、科技、20+ 国策树、事件、顾问、建筑
+│   ├── data-map.ts         消费 MAP_GEO：多边形/投影/点选/海区/跨海通道
+│   ├── world.ts            世界状态构建与序列化、师团、外交查询、效果执行器
+│   ├── sim.ts              小时管线（移动→战斗→恢复→登陆结算）+ 日界（经济/生产/科研/政治/占领/外交/事件/AI）
+│   ├── ai.ts               22+ 国 AI：国策评分、生产再平衡、扩军、战线与进攻、空军前移、宣战节奏
+│   ├── systems.ts          装备设计器、装备贸易与租借、海军舰队与海战、空军任务、间谍、傀儡、燃料、核武
+│   ├── systems2.ts         煤炭、决议与民族精神、将领/集团军/前线计划、学说精通度、阵营、外交行动、和平会议、自制度、难度、剧本、控制台、MOD
+│   ├── save.ts             localStorage 存档（Node 下降级内存）+ 铁人自动存档
+│   ├── render.ts           Canvas 多边形渲染 + 7 图层（补给管网 / 战线折线 / 海区航线 / 空域）
+│   ├── ui.ts               顶栏、10 个面板、省份详情、事件与和平弹窗、日志、toast
+│   └── main.ts             主循环、速度控制、摄像机输入、快捷键、控制台、自动存档
 └── tests/
     ├── headless.js         8 段回归 94 项（地图/世界/3 年长跑/确定性/存档/战斗校准/扩展系统/剧本难度）
     ├── dom-smoke.js        最小 DOM 桩 18 项（渲染/摄像机/10 面板/设计器/和平会议/控制台）
@@ -165,6 +165,13 @@ node --max-old-space-size=3072 tests/headless.js 3    # 94 项断言
 node --max-old-space-size=3072 tests/dom-smoke.js     # 18 项断言
 node tools/build-map.js                               # 重新生成地图（约 1 分钟）
 ```
+
+**开发与构建（TypeScript）**
+
+- `src/*.ts` 是唯一真源；`tsc -p tsconfig.json` 就地 emit 出 `src/*.js`（index.html / server.js / tests / CI 全部只认 `.js`，加载方式不变）
+- 本地改码后编译：`npm run build`（或 `npx tsc -p tsconfig.json`）；`npm run watch` 持续编译
+- CI 打包 APK 前会自动跑一遍 `tsc`，保证产物与源码同步
+- 当前 `tsc` **0 错误**；类型收紧（给 `World/Country/Province/Division` 补接口、把字符串 tag 字面量化）是后续增量工作——国家 tag 写错（如 AUS/AUT）将变成编译期错误
 
 ---
 
