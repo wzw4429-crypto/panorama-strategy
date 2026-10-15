@@ -2,7 +2,7 @@
 
 > 交接时间：2026-10-15　｜　仓库：`D:\dsh\panorama`（git，分支 `main`）
 > 远端：https://github.com/wzw4429-crypto/panorama-strategy
-> 当前健康度：两套测试全绿（**96/96 + 20/20**，含 4 项新增回归）；**P0 地图红色横带、P1 手机横屏排版均已修复**（见 §4）。
+> 当前健康度：两套测试全绿（**99/99 + 21/21**，含 5 项新增回归）；P0 地图红色横带、P1 手机横屏排版均已修复（见 §4）；另按用户要求补上「师团点名 / 按名字组合 / 编组」（见 §5）。
 
 ---
 
@@ -57,7 +57,7 @@ panorama/
 │   ├── systems2.ts       煤炭、决议与民族精神、将领/集团军/前线计划、学说精通度、阵营、和平会议、自制度、难度、剧本、控制台、MOD
 │   ├── save.ts           localStorage 存档（Node 下降级内存）
 │   ├── render.ts         Canvas 渲染 + 7 图层（补给管网/战线折线/海区航线/空域/抵抗/地形/政治）
-│   ├── ui.ts             顶栏、10 面板、省份详情、事件与和平弹窗、日志、toast
+│   ├── ui.ts             顶栏、10 面板、省份详情、事件与和平弹窗、日志、toast、师团点名/编组选择
 │   └── main.ts           主循环(rAF)、速度、摄像机输入、快捷键、控制台、自动存档
 ├── data/
 │   ├── countries-110m.json  Natural Earth 110m TopoJSON
@@ -165,10 +165,11 @@ K80 横屏（1067×480）下工具行按钮被换行挤压，"拖动平移·滚�
 
 | 要求 | 出处 | 状态 |
 |---|---|---|
-| 修到"没有任何一点 bug"再推送 | m01338 | 未完成（P0 横带未修） |
-| 每次修完自己跑测试并全面复查代码 | m01338 | 持续执行中 |
+| 修到"没有任何一点 bug"再推送 | m01338 | P0/P1 已修并本地提交（`d51d3cc` + `0cee85a` + 本次），待用户确认后推送 |
+| 每次修完自己跑测试并全面复查代码 | m01338 | 持续执行中（现 99/99 + 21/21） |
 | 交接文档 | m01471 | **本文档** |
 | 自主推进、不要频繁确认 | 会话早期多轮 | 持续遵守 |
+| 把聚在一地的师拆开、给每个师起名字、按名字组合 | 用户（本轮） | **已实现**：师团名带兵种（如 德国·第3装甲师）；「陆军」面板逐个师点选（拆堆叠）、按名字组合选中、「存为编组」一键召回（随存档持久化） |
 
 推送流程（remote 已去掉 token）：
 ```powershell
@@ -185,7 +186,7 @@ git fetch origin          # 同步 tracking ref（否则 status 会显示 ahead�
 
 | 项 | 值 / 说明 |
 |---|---|
-| node / npm | 不在 PATH：`C:\Users\wupengyaguangyaxuan\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe`（`npm.cmd` 同目录） |
+| node / npm | node 不在 PATH：`C:\Users\wupengyaguangyaxuan\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe`；**本机没有 npm/npm.cmd**，编译用 npx 缓存里的 tsc 5.6.3：`node "C:\Users\wupengyaguangyaxuan\AppData\Local\npm-cache\_npx\397d2194ba975aaa\node_modules\typescript\lib\tsc.js" -p tsconfig.json --alwaysStrict`（不加 `--alwaysStrict` 会把已提交 js 顶部的 `"use strict"` prologue 删掉，产生无关 diff） |
 | Chrome | `C:\Program Files\Google\Chrome\Application\chrome.exe`，用 `--headless=new`；**截图文件异步生成，命令返回后要 `Start-Sleep 5-6s`**；必须带独立 `--user-data-dir`（默认 profile 被占用会静默失败） |
 | Python（取证） | `C:\Users\wupengyaguangyaxuan\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe`（含 Pillow；`rowprofile.py` 甚至不用它，纯 zlib 解 PNG） |
 | `--dump-dom` | 与 `--virtual-time-budget` 同用；输出重定向后同样要等进程结束再读，过早读会得到空文件 |

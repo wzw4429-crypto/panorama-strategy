@@ -101,6 +101,12 @@ function mkWorld(playerTag) {
 let w = mkWorld();
 ok(Object.keys(w.countries).length === nCountries, '国家数 = ' + nCountries + '（实际 ' + Object.keys(w.countries).length + '）');
 ok(w.divisions.length > 200, '初始师团 > 200（实际 ' + w.divisions.length + '）');
+// 师团命名：名字里带兵种（便于「按名字组合」），且全局唯一（否则无法逐个点名拆分堆叠）
+const divNames = w.divisions.map((d) => d.name);
+ok(divNames.every((n) => n && /师$/.test(n)), '师团名字非空且以兵种结尾（如 德国·第3装甲师）',
+  divNames.find((n) => !n || !/师$/.test(n)));
+ok(new Set(divNames).size === divNames.length, '师团名字全局唯一（实际 ' + new Set(divNames).size + '/' + divNames.length + '）');
+ok(w.divisions.some((d) => /装甲师$|摩托化师$|骑兵师$/.test(d.name)), '兵力构成里有非步兵师（命名区分兵种）', '');
 let facMismatch = 0;
 for (const t in w.countries) {
   const c = w.countries[t];

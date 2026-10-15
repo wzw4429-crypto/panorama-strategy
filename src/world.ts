@@ -117,9 +117,13 @@
       c.manpower = Math.max(0, c.manpower - need.manpower * ratio);
     }
     const id = w.nextId.division++;
+    // 名字带兵种，便于在「军队」面板逐个识别、按名字组合（如 德国·第3装甲师）
+    const tplName = ((PSE.TEMPLATES[tplId] || {}) as any).name || '';
+    const bare = tplName.replace(/\s*[（(].*$/, '');
+    const typeName = bare ? (/师$/.test(bare) ? bare : bare + '师') : '师';
     const d = {
       id, tag, tplId,
-      name: (PSE.COUNTRY_NAME[tag] || tag) + '·' + ((c.divisionCounter = (c.divisionCounter || 0) + 1)) + '师',
+      name: (PSE.COUNTRY_NAME[tag] || tag) + '·第' + ((c.divisionCounter = (c.divisionCounter || 0) + 1)) + typeName,
       loc: locId, org: st.org * ratio, orgMax: st.org,
       hp: st.hp * ratio, hpMax: st.hp,
       str: ratio, exp: 0, supply: 1, entrench: 0,

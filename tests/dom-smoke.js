@@ -297,6 +297,53 @@ step('P1 回归：窄屏折叠提示文字的 CSS 选择器不会被 ID 规则�
   if (hideRules < 3) throw new Error('折叠规则不全：期望 ≥3 条（矮屏横屏 / 触屏横屏 / 竖屏），实际 ' + hideRules);
 });
 
+step('师团点名/编组：同省堆叠可逐个拆开、按名字组合（新功能回归）', () => {
+  const UI = PSE.UI, w = PSE.Game.world, c = w.countries[w.playerTag];
+  const mine = c.divisions.map((id) => w.divisions.find((d) => d.id === id)).filter(Boolean);
+  if (mine.length < 3) throw new Error('玩家师团太少，无法验证：' + mine.length);
+  const byLoc = {};
+  for (const d of mine) (byLoc[d.loc] = byLoc[d.loc] || []).push(d);
+  const stacked = Object.keys(byLoc).map((k) => byLoc[k]).sort((a, b) => b.length - a.length)[0];
+  if (stacked.length < 2) throw new Error('找不到同省堆叠（≥2 个师）');
+  const a = stacked[0], b = stacked[1];
+  // 整省全选 → 逐个取消（拆分）
+  UI.selectDivs(stacked.map((d) => d.id));
+  if (UI.selectedDivs().length !== stacked.length) throw new Error('整省选择失败');
+  UI.toggleDiv(b.id);
+  if (UI.selectedDivs().length !== stacked.length - 1) throw new Error('逐个取消失败');
+  if (UI.selectedDivs().indexOf(b.id) >= 0) throw new Error('已取消的师仍在选择中');
+  UI.toggleDiv(b.id);
+  if (UI.selectedDivs().indexOf(b.id) < 0) throw new Error('再次点选未生效');
+  // 按名字组合
+  UI.selectByName(w, b.name);
+  if (UI.selectedDivs().length !== 1 || UI.selectedDivs()[0] !== b.id) throw new Error('按名字选中失败');
+  UI.selectByName(w, a.name, 'add');
+  if (UI.selectedDivs().length !== 2) throw new Error('「加入选择」失败');
+  // 军队面板确实生成了「逐个点选 / 按名字组合 / 编组」控件（防 UI 回落成只能整省选择）
+  UI.setTab('army', PSE.Game);
+  const armHtml = document.getElementById('panelBody').innerHTML;
+  for (const need of ['data-seldiv=', 'data-divbyname=', 'data-groupsave=', 'data-selprov=', '该省清空']) {
+    if (armHtml.indexOf(need) < 0) throw new Error('军队面板缺少控件：' + need);
+  }
+  UI.setTab('production', PSE.Game);
+
+  // 编组：存 → 清空 → 召回 → 存档往返后仍在 → 删除
+  UI.saveGroup(w, '单元测试编组');
+  const ids = UI.selectedDivs().slice();
+  UI.selectDivs([]);
+  if (UI.selectGroup(w, '单元测试编组').join(',') !== ids.join(',')) throw new Error('编组召回失败');
+  const r = PSE.Save.save(w, 'slotGrp', {});
+  if (!r.ok) throw new Error('保存失败：' + r.error);
+  // 直接按 slot 读回（PSE.UI.load 固定读 slot1/ironman，这里要验证的是编组随存档序列化）
+  const w2 = PSE.Save.load('slotGrp');
+  if (!w2) throw new Error('读档失败');
+  if (!(w2.countries[w2.playerTag].groups || []).some((x) => x.name === '单元测试编组')) throw new Error('编组未随存档持久化');
+  UI.selectGroup(w2, '单元测试编组');
+  UI.deleteGroup(w2, '单元测试编组');
+  if ((w2.countries[w2.playerTag].groups || []).length) throw new Error('删除编组失败');
+  PSE.Save.remove('slotGrp');
+});
+
 console.log('\n运行结果：' + PSE.Time.format(PSE.Game.world.hour) +
   '｜战斗 ' + (PSE.Game.world.stats.battles || 0) + ' 次｜战争 ' + PSE.Game.world.wars.length + ' 场');
 console.log('\n' + (failures === 0 ? '\x1b[32m冒烟测试全部通过\x1b[0m' : '\x1b[31m失败 ' + failures + ' 项\x1b[0m') + '（检查 ' + checks + ' 项）');

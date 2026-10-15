@@ -624,6 +624,19 @@
 
     h += '<div class="sec"><div class="secTitle">部队 <span class="muted">（选中 ' + selectedDivs.length + '）</span>' +
       '<button class="mini" data-selall="1">全选</button><button class="mini" data-selnone="1">取消</button></div>';
+    // 按名字组合：输入名字片段（逗号/空格分隔）批量选中；也可把当前选择存成编组随时一键召回
+    h += '<div class="row wrap">' +
+      '<input id="divNameInput" type="text" placeholder="按名字组合：如 第3装甲师, 第5" style="flex:1;min-width:130px">' +
+      '<button class="mini" data-divbyname="replace">按名字选中</button>' +
+      '<button class="mini" data-divbyname="add">加入选择</button></div>';
+    h += '<div class="row wrap">' +
+      '<input id="groupNameInput" type="text" placeholder="编组名（如 北线突击群）" style="flex:1;min-width:130px">' +
+      '<button class="mini" data-groupsave="1">存为编组</button></div>';
+    if ((c.groups || []).length) {
+      h += '<div class="row wrap"><span class="muted small">编组</span>' +
+        c.groups.map((gr, gi) => '<button class="mini" data-groupsel="' + gi + '">' + gr.name + '（' + gr.divs.length + '）</button>' +
+          '<button class="mini" data-groupdel="' + gi + '" title="删除编组">×</button>').join('') + '</div>';
+    }
     const byLoc = {};
     for (const id of c.divisions) {
       const d = w.divisions.find((x) => x.id === id);
@@ -634,13 +647,22 @@
     for (const pid of keys.slice(0, 40)) {
       const list = byLoc[pid];
       const p = w.provinces[pid];
-      h += '<div class="row"><span class="eqName">' + p.name + '</span><span class="muted">' + list.length + ' 个师</span>' +
+      h += '<div class="row wrap"><span class="eqName">' + p.name + '</span>' +
+        '<span class="muted">' + list.length + ' 个师</span>' +
         '<span class="muted">均org ' + Math.round(list.reduce((s, d) => s + d.org / d.orgMax, 0) / list.length * 100) + '%</span>' +
-        '<button class="mini" data-selprov="' + pid + '">选中</button>' +
+        '<button class="mini" data-selprov="' + pid + '">该省全选</button>' +
+        '<button class="mini" data-unselprov="' + pid + '">该省清空</button>' +
         (list.some((d) => d.battleId != null) ? '<span class="alert">交战中</span>' : '') +
         '</div>';
+      // 逐个师：点名字即选中/取消 —— 这样就能把聚在一地的师分成几份，分别调动
+      h += '<div class="row wrap" style="margin-left:70px">' + list.map((d) => {
+        const on = sel.has(d.id);
+        const mark = d.battleId != null ? ' ⚔' : (d.status === 'moving' ? ' →' : '');
+        return '<button class="mini' + (on ? ' on' : '') + '" data-seldiv="' + d.id + '" title="' +
+          (on ? '取消选择' : '选中该师') + '">' + d.name + ' · ' + Math.round(d.org / d.orgMax * 100) + '%' + mark + '</button>';
+      }).join('') + '</div>';
     }
-    h += '</div>';
+    h += '<div class="small muted">点单个师的名字可拆开选择；地图上右键下达行军/进攻时，只有选中的师会行动。</div></div>';
     return h;
   }
 
@@ -791,6 +813,14 @@
       const own = divs.filter((d) => d.tag === c.tag);
       if (own.length) h += '（我方 ' + own.length + '）';
       h += '</div>';
+      // 逐个师点名：点名字即选中/取消 —— 一地的师可以拆成几份分别调动
+      h += '<div class="row wrap">' + divs.slice(0, 14).map((d) => {
+        const mine = d.tag === c.tag;
+        const on = selectedDivs.indexOf(d.id) >= 0;
+        return '<button class="mini' + (on ? ' on' : '') + '"' + (mine ? ' data-seldiv="' + d.id + '"' : ' disabled') +
+          ' title="' + (mine ? (on ? '取消选择' : '选中该师') : '他国部队') + '">' + d.name + ' · ' +
+          Math.round(d.org / d.orgMax * 100) + '%</button>';
+      }).join('') + (own.length && own.length < divs.length ? '<span class="muted small">他国师不可选</span>' : '') + '</div>';
     }
     // 命令
     h += '<div class="row wrap">';
@@ -896,6 +926,43 @@
       const pid = +b.dataset.selprov;
       selectedDivs = w.divisions.filter((d) => d.tag === w.playerTag && d.loc === pid).map((d) => d.id);
       UI.renderPanel(g); UI.renderProvince(g, pid);
+    });
+    // —— 逐个师选择（拆分同省堆叠）/ 该省清空 / 按名字组合 / 编组 ——
+    el.querySelectorAll('[data-seldiv]').forEach((b: any) => b.onclick = () => {
+      UI.toggleDiv(+b.dataset.seldiv);
+      UI.renderPanel(g); UI.renderProvince(g, PSE.Render.selectedProv);
+    });
+    el.querySelectorAll('[data-unselprov]').forEach((b: any) => b.onclick = () => {
+      const pid = +b.dataset.unselprov;
+      const drop = new Set(w.divisions.filter((d) => d.tag === w.playerTag && d.loc === pid).map((d) => d.id));
+      UI.selectDivs(selectedDivs.filter((id) => !drop.has(id)));
+      UI.renderPanel(g); UI.renderProvince(g, pid);
+    });
+    el.querySelectorAll('[data-divbyname]').forEach((b: any) => b.onclick = () => {
+      const inp = $('divNameInput');
+      const n = UI.selectByName(w, inp ? inp.value : '', b.dataset.divbyname).length;
+      UI.toast(n ? '按名字选中 ' + n + ' 个师' : '没有匹配的师', n ? '' : 'warn');
+      UI.renderPanel(g); UI.renderProvince(g, PSE.Render.selectedProv);
+    });
+    el.querySelectorAll('[data-groupsave]').forEach((b: any) => b.onclick = () => {
+      const inp = $('groupNameInput');
+      const nm = inp && inp.value ? String(inp.value).trim() : '';
+      if (!nm) { UI.toast('先在右侧填编组名', 'warn'); return; }
+      if (!selectedDivs.length) { UI.toast('先选中若干师', 'warn'); return; }
+      UI.saveGroup(w, nm);
+      UI.toast('编组「' + nm + '」已保存（' + selectedDivs.length + ' 个师）');
+      UI.renderPanel(g);
+    });
+    el.querySelectorAll('[data-groupsel]').forEach((b: any) => b.onclick = () => {
+      const gr = (player(w).groups || [])[+b.dataset.groupsel];
+      const n = gr ? UI.selectGroup(w, gr.name).length : 0;
+      UI.toast(n ? '已选中编组「' + gr.name + '」：' + n + ' 个师' : '该编组已无可用师', n ? '' : 'warn');
+      UI.renderPanel(g); UI.renderProvince(g, PSE.Render.selectedProv);
+    });
+    el.querySelectorAll('[data-groupdel]').forEach((b: any) => b.onclick = () => {
+      const gr = (player(w).groups || [])[+b.dataset.groupdel];
+      if (gr) { UI.deleteGroup(w, gr.name); UI.toast('已删除编组「' + gr.name + '」'); }
+      UI.renderPanel(g);
     });
     const sa = el.querySelector('[data-selall]');
     if (sa) sa.onclick = () => { selectedDivs = player(w).divisions.slice(); UI.renderPanel(g); };
@@ -1092,6 +1159,11 @@
 
   UI.bindProvince = function (g) {
     const el = $('provinceInfo'), w = g.world;
+    el.querySelectorAll('[data-seldiv]').forEach((b: any) => b.onclick = () => {
+      UI.toggleDiv(+b.dataset.seldiv);
+      UI.renderProvince(g, PSE.Render.selectedProv);
+      UI.renderPanel(g);
+    });
     el.querySelectorAll('[data-order-move]').forEach((b: any) => b.onclick = () => {
       const n = PSE.Cmd.orderMove(w, selectedDivs, +b.dataset.orderMove);
       UI.toast(n ? n + ' 个师开始行军' : '无法抵达该省');
@@ -1164,4 +1236,71 @@
   };
 
   UI.selectedDivs = () => selectedDivs;
+
+  // ============================================================
+  // 师团选择 / 编组：同省堆叠可逐个师拆开选择，也可按名字组合
+  // ============================================================
+  /** 替换当前选择 */
+  UI.selectDivs = function (ids) {
+    selectedDivs = (ids || []).slice();
+    return selectedDivs.slice();
+  };
+  /** 逐个师开关（拆分同省堆叠的核心：把某几个师移出/移入选择） */
+  UI.toggleDiv = function (id) {
+    const i = selectedDivs.indexOf(id);
+    if (i >= 0) selectedDivs.splice(i, 1);
+    else selectedDivs.push(id);
+    return selectedDivs.slice();
+  };
+  /** 该国现役师（去掉已解散/阵亡的 id） */
+  function liveDivs(w, c) {
+    const out = [];
+    for (const id of (c.divisions || [])) {
+      const d = w.divisions.find((x) => x.id === id);
+      if (d) out.push(d);
+    }
+    return out;
+  }
+  UI.liveDivs = function (g) { return liveDivs(g.world, player(g.world)); };
+  /** 按名字组合：逗号/空格分隔的若干子串，命中任意一个即选中（默认替换选择） */
+  UI.selectByName = function (w, text, mode) {
+    const toks = String(text == null ? '' : text).split(/[,，、;；\s]+/).filter(Boolean);
+    if (!toks.length) return selectedDivs.slice();
+    const c = player(w);
+    const hits = liveDivs(w, c).filter((d) => toks.some((t) => String(d.name || '').indexOf(t) >= 0));
+    const ids = hits.map((d) => d.id);
+    if (mode === 'add') {
+      for (const id of ids) if (selectedDivs.indexOf(id) < 0) selectedDivs.push(id);
+    } else {
+      selectedDivs = ids.slice();
+    }
+    return selectedDivs.slice();
+  };
+  /** 把当前选择存成命名编组（同名覆盖），随国家状态一起存档 */
+  UI.saveGroup = function (w, name) {
+    const nm = String(name == null ? '' : name).trim();
+    const c = player(w);
+    c.groups = c.groups || [];
+    if (!nm) return null;
+    const divs = selectedDivs.slice();
+    const old = c.groups.find((x) => x.name === nm);
+    if (old) old.divs = divs;
+    else c.groups.push({ name: nm, divs: divs });
+    return { name: nm, divs: divs };
+  };
+  /** 一键选中某编组（自动剔除已不存在的师） */
+  UI.selectGroup = function (w, name) {
+    const c = player(w);
+    const gr = (c.groups || []).find((x) => x.name === name);
+    if (!gr) return [];
+    const alive = gr.divs.filter((id) => w.divisions.some((d) => d.id === id && d.tag === c.tag));
+    gr.divs = alive;
+    selectedDivs = alive.slice();
+    return selectedDivs.slice();
+  };
+  UI.deleteGroup = function (w, name) {
+    const c = player(w);
+    c.groups = (c.groups || []).filter((x) => x.name !== name);
+  };
+  UI.groupsOf = function (w) { return player(w).groups || []; };
 })(typeof window !== 'undefined' ? window : globalThis);
