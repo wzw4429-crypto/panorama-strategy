@@ -107,6 +107,33 @@ ok(divNames.every((n) => n && /师$/.test(n)), '师团名字非空且以兵种�
   divNames.find((n) => !n || !/师$/.test(n)));
 ok(new Set(divNames).size === divNames.length, '师团名字全局唯一（实际 ' + new Set(divNames).size + '/' + divNames.length + '）');
 ok(w.divisions.some((d) => /装甲师$|摩托化师$|骑兵师$/.test(d.name)), '兵力构成里有非步兵师（命名区分兵种）', '');
+// 集团军自定义：数量/名称/将领/编成（用独立世界验证，不污染后面的长跑检查）
+{
+  const wA = PSE.World.create({ playerTag: 'GER', seed: 19360102 });
+  PSE.Army.ensure(wA, wA.countries.GER);
+  const cA = wA.countries.GER;
+  PSE.Army.assign(wA, cA);
+  const before = cA.armies.length;
+  const na = PSE.Army.add(wA, cA, '测试集群');
+  ok(!!na && cA.armies.length === before + 1 && cA.generals.length > before, '可新建集团军并自动配将（数量 ' + cA.armies.length + '）');
+  const ids = cA.divisions.slice(0, 3);
+  ok(PSE.Army.setDivisions(wA, cA, na.id, ids) === 3 &&
+     ids.every((id) => { const d = wA.divisions.find((x) => x.id === id); return d && d.army === na.id; }),
+     '可把选中师编入指定集团军（3/3）');
+  ok(cA.armies.filter((a) => a.id !== na.id).every((a) => !a.divisions.some((id) => ids.indexOf(id) >= 0)),
+     '编入后从原集团军移除');
+  for (let i = 0; i < 48; i++) PSE.Sim.tickHour(wA);   // 两个日界：每日自动编组不得覆盖手动编成
+  const still = ids.filter((id) => { const d = wA.divisions.find((x) => x.id === id); return d && d.army === na.id; }).length;
+  ok(still === 3, '手动编成不被每日自动编组覆盖（' + still + '/3）');
+  ok(PSE.Army.releaseDivisions(wA, cA, [ids[0]]) === 1 &&
+     !(wA.divisions.find((x) => x.id === ids[0]) || {}).army, '可把师从集团军调出');
+  ok(PSE.Army.rename(wA, cA, na.id, '改名集群') && na.name === '改名集群', '可自定义集团军名称');
+  const g0 = na.generalId;
+  const g2 = cA.generals.find((x) => x.id !== g0);
+  ok(PSE.Army.setGeneral(wA, cA, na.id, g2 ? g2.id : 0) && na.generalId === (g2 ? g2.id : 0), '可自定义集团军将领');
+  ok(PSE.Army.remove(wA, cA, na.id) && !cA.armies.some((a) => a.id === na.id), '可解散集团军');
+  ok(ids.every((id) => { const d = wA.divisions.find((x) => x.id === id); return d && !d.army; }), '解散后原部队脱离集团军');
+}
 let facMismatch = 0;
 for (const t in w.countries) {
   const c = w.countries[t];

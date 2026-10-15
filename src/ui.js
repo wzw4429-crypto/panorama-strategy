@@ -626,23 +626,39 @@
             PSE.Army.assign(w, c);
         }
         const sel = new Set(selectedDivs);
-        let h = '<div class="sec"><div class="secTitle">集团军与将领 <span class="muted">（陆军经验 ' + Math.round(c.armyXp || 0) + '）</span></div>';
+        let h = '<div class="sec"><div class="secTitle">集团军与将领 <span class="muted">（陆军经验 ' + Math.round(c.armyXp || 0) + '）</span>' +
+            '<button class="mini" data-army-add="1">新建集团军</button>' +
+            '<button class="mini" data-army-auto="1">自动补齐</button></div>';
+        if (!(c.armies || []).length) {
+            h += '<div class="muted small">当前没有集团军——点「新建集团军」创建，数量与编成都可以自定义。</div>';
+        }
         for (const a of (c.armies || [])) {
             const g = (c.generals || []).find((x) => x.id === a.generalId);
-            const divs = a.divisions.filter((id) => w.divisions.some((d) => d.id === id)).length;
-            h += '<div class="row wrap"><span class="eqName">' + a.name + '</span>' +
-                '<span class="muted">' + (g ? g.name + '（Lv' + g.level + ' 攻' + g.attack + ' 防' + g.defense + '）' : '无将领') + '</span>' +
-                '<span class="muted">' + divs + ' 个师</span></div>';
-            if (g) {
-                h += '<div class="row wrap small muted" style="margin-left:78px">特质：' +
-                    g.traits.map((t) => (PSE.TRAITS[t] ? PSE.TRAITS[t].name : t)).join('、') + '（经验 ' + Math.round(g.xp) + '/100）</div>';
-            }
-            h += '<div class="row wrap"><span class="muted small" style="margin-left:78px">命令</span>' +
+            const list = a.divisions.map((id) => w.divisions.find((d) => d.id === id)).filter(Boolean);
+            h += '<div class="row wrap">' +
+                '<input id="armyName' + a.id + '" type="text" value="' + a.name + '" style="width:112px">' +
+                '<button class="mini" data-army-rename="' + a.id + '">改名</button>' +
+                '<span class="muted">' + list.length + ' 个师</span>' +
+                (list.length ? '<span class="muted small">' + list.slice(0, 3).map((d) => d.name).join('、') + (list.length > 3 ? ' 等' : '') + '</span>' : '') +
+                '</div>';
+            h += '<div class="row wrap"><span class="muted small" style="margin-left:4px">将领</span>' +
+                '<select data-army-general="' + a.id + '"><option value="0">无将领</option>' +
+                (c.generals || []).map((x) => '<option value="' + x.id + '"' + (x.id === a.generalId ? ' selected' : '') + '>' +
+                    x.name + '（Lv' + x.level + ' 攻' + x.attack + ' 防' + x.defense + '）</option>').join('') +
+                '</select>' +
+                (g ? '<span class="muted small">' + g.traits.map((t) => (PSE.TRAITS[t] ? PSE.TRAITS[t].name : t)).join('、') +
+                    '（经验 ' + Math.round(g.xp) + '/100）</span>' : '<span class="alert small">未指派将领：无加成</span>') +
+                '</div>';
+            h += '<div class="row wrap"><span class="muted small" style="margin-left:4px">命令</span>' +
                 ['hold', 'advance', 'blitz'].map((o) => '<button class="mini' + (a.order === o ? ' on' : '') + '" data-order="' + a.id + ':' + o + '">' +
                     { hold: '防守', advance: '推进', blitz: '强攻' }[o] + '</button>').join('') +
-                '<button class="mini" data-army-select="' + a.id + '">选中该军</button></div>';
+                '<button class="mini" data-army-set="' + a.id + '">编入选中师</button>' +
+                '<button class="mini" data-army-pull="' + a.id + '">调出选中师</button>' +
+                '<button class="mini" data-army-select="' + a.id + '">选中该军</button>' +
+                '<button class="mini" data-army-del="' + a.id + '">解散</button></div>';
         }
-        h += '<div class="small muted">推进：自动向相邻敌控省发起进攻（要求 1.4:1 兵力优势）；强攻：1:1 即进攻，组织度要求更低。</div></div>';
+        h += '<div class="small muted">推进：自动向相邻敌控省进攻（需 1.4:1 兵力优势）；强攻：1:1 即进攻。<br>' +
+            '编成：先在下方「部队」区点选若干师，再点某军的「编入选中师」；「调出选中师」把它们移出集团军（待编）。手动编成后不会再被每日自动编组改动，点「自动补齐」可恢复系统编组。</div></div>';
         h += '<div class="sec"><div class="secTitle">征兵 <span class="muted">（人力 ' + Math.round(c.manpower) + 'k，装备 ' + Math.floor(c.stockpile.infantry_equipment_1 || 0) + '）</span></div>';
         for (const tplId of c.templates) {
             const st = PSE.computeTemplate(tplId, c.modifiers);
@@ -1099,7 +1115,72 @@
             const c = player(w);
             const a = (c.armies || []).find((x) => x.id === +b.dataset.armySelect);
             if (a)
-                selectedDivs = a.divisions.slice();
+                selectedDivs = a.divisions.filter((id) => w.divisions.some((d) => d.id === id && d.tag === c.tag));
+            UI.renderPanel(g);
+        });
+        // —— 集团军自定义：新建 / 解散 / 编成 / 改名 / 换将 ——
+        el.querySelectorAll('[data-army-add]').forEach((b) => b.onclick = () => {
+            const c = player(w);
+            const a = PSE.Army.add(w, c);
+            const ng = (c.generals || []).find((x) => x.id === a.generalId);
+            UI.toast('已新建 ' + a.name + (ng ? '（将领 ' + ng.name + '）' : ''));
+            UI.renderPanel(g);
+        });
+        el.querySelectorAll('[data-army-del]').forEach((b) => b.onclick = () => {
+            const c = player(w);
+            const a = (c.armies || []).find((x) => x.id === +b.dataset.armyDel);
+            if (a && PSE.Army.remove(w, c, a.id))
+                UI.toast(a.name + ' 已解散（原部队变为待编）');
+            UI.renderPanel(g);
+        });
+        el.querySelectorAll('[data-army-set]').forEach((b) => b.onclick = () => {
+            const c = player(w);
+            const a = (c.armies || []).find((x) => x.id === +b.dataset.armySet);
+            if (!a)
+                return;
+            if (!selectedDivs.length) {
+                UI.toast('先在「部队」区点选若干师', 'warn');
+                return;
+            }
+            const n = PSE.Army.setDivisions(w, c, a.id, selectedDivs);
+            UI.toast('已把 ' + n + ' 个师编入 ' + a.name);
+            UI.renderPanel(g);
+            UI.renderProvince(g, PSE.Render.selectedProv);
+        });
+        el.querySelectorAll('[data-army-pull]').forEach((b) => b.onclick = () => {
+            const c = player(w);
+            const a = (c.armies || []).find((x) => x.id === +b.dataset.armyPull);
+            if (!selectedDivs.length) {
+                UI.toast('先在「部队」区点选若干师', 'warn');
+                return;
+            }
+            const n = PSE.Army.releaseDivisions(w, c, selectedDivs);
+            UI.toast('已从' + (a ? a.name + '等' : '') + '调出 ' + n + ' 个师（待编）');
+            UI.renderPanel(g);
+            UI.renderProvince(g, PSE.Render.selectedProv);
+        });
+        el.querySelectorAll('[data-army-rename]').forEach((b) => b.onclick = () => {
+            const c = player(w);
+            const inp = $('armyName' + b.dataset.armyRename);
+            if (!inp || !inp.value) {
+                UI.toast('先在左侧输入框填新名字', 'warn');
+                return;
+            }
+            const a = (c.armies || []).find((x) => x.id === +b.dataset.armyRename);
+            if (PSE.Army.rename(w, c, +b.dataset.armyRename, inp.value))
+                UI.toast(a ? '已改名：' + inp.value : '');
+            UI.renderPanel(g);
+        });
+        el.querySelectorAll('[data-army-general]').forEach((s) => s.onchange = () => {
+            const c = player(w);
+            if (PSE.Army.setGeneral(w, c, +s.dataset.armyGeneral, +s.value))
+                UI.toast('将领已调整');
+            UI.renderPanel(g);
+        });
+        el.querySelectorAll('[data-army-auto]').forEach((b) => b.onclick = () => {
+            const c = player(w);
+            const total = PSE.Army.autoFill(w, c);
+            UI.toast('已按系统自动编组（在编 ' + total + ' 个师）');
             UI.renderPanel(g);
         });
         // —— 产线换型 ——

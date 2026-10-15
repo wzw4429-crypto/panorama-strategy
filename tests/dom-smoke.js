@@ -344,6 +344,33 @@ step('师团点名/编组：同省堆叠可逐个拆开、按名字组合（新�
   PSE.Save.remove('slotGrp');
 });
 
+step('集团军自定义：数量/名称/将领/编成（新功能回归）', () => {
+  const UI = PSE.UI, w = PSE.Game.world, c = w.countries[w.playerTag];
+  PSE.Army.ensure(w, c); PSE.Army.assign(w, c);
+  const before = c.armies.length;
+  const na = PSE.Army.add(w, c, '单元测试军');
+  if (!na || c.armies.length !== before + 1) throw new Error('新建集团军失败');
+  const d1 = w.divisions.find((d) => d.tag === w.playerTag && d.id === c.divisions[0]);
+  if (!d1) throw new Error('找不到玩家师');
+  if (PSE.Army.setDivisions(w, c, na.id, [d1.id]) !== 1 || d1.army !== na.id) throw new Error('编入失败');
+  if (PSE.Army.releaseDivisions(w, c, [d1.id]) !== 1 || d1.army != null) throw new Error('调出失败');
+  const g2 = c.generals.find((x) => x.id !== na.generalId);
+  if (g2 && (!PSE.Army.setGeneral(w, c, na.id, g2.id) || na.generalId !== g2.id)) throw new Error('换将失败');
+  if (!PSE.Army.rename(w, c, na.id, '单元测试军·改') || na.name !== '单元测试军·改') throw new Error('改名失败');
+  // 手动编成不被每日自动编组覆盖
+  PSE.Army.setDivisions(w, c, na.id, [d1.id]);
+  for (let i = 0; i < 30; i++) PSE.Sim.tickHour(w);
+  if (d1.army !== na.id) throw new Error('手动编成被每日自动编组覆盖');
+  if (!PSE.Army.remove(w, c, na.id) || d1.army != null) throw new Error('解散失败');
+  // 面板控件齐全
+  UI.setTab('army', PSE.Game);
+  const armHtml = document.getElementById('panelBody').innerHTML;
+  for (const need of ['data-army-add=', 'data-army-del=', 'data-army-set=', 'data-army-pull=', 'data-army-rename=', 'data-army-general=', 'data-army-auto=', 'data-army-select=']) {
+    if (armHtml.indexOf(need) < 0) throw new Error('集团军面板缺少控件：' + need);
+  }
+  UI.setTab('production', PSE.Game);
+});
+
 console.log('\n运行结果：' + PSE.Time.format(PSE.Game.world.hour) +
   '｜战斗 ' + (PSE.Game.world.stats.battles || 0) + ' 次｜战争 ' + PSE.Game.world.wars.length + ' 场');
 console.log('\n' + (failures === 0 ? '\x1b[32m冒烟测试全部通过\x1b[0m' : '\x1b[31m失败 ' + failures + ' 项\x1b[0m') + '（检查 ' + checks + ' 项）');

@@ -182,8 +182,14 @@
     const DEFAULT_NAMES = ['第一军司令', '第二军司令', '第三军司令', '第四军司令'];
     const Army = (PSE.Army = {});
     Army.ensure = function (w, c) {
-        if (c.armies && c.armies.length)
+        // 一旦初始化过就只补空数组：玩家可能把集团军全解散，不能被 ensure 又造回来
+        if (c.armiesInit || (c.armies && c.armies.length)) {
+            c.armies = c.armies || [];
+            c.generals = c.generals || [];
+            c.armiesInit = true;
             return;
+        }
+        c.armiesInit = true;
         const pool = FIRST_NAMES[c.tag] || DEFAULT_NAMES;
         c.armies = [];
         c.generals = c.generals || [];
@@ -209,13 +215,143 @@
             const d = w.divisions.find((x) => x.id === id);
             if (!d)
                 continue;
-            if (d.army)
-                continue;
+            if (d.army || d.armyManual)
+                continue; // 手动编成（编入/调出过）不再被自动编组动
             const a = c.armies[i % c.armies.length];
             d.army = a.id;
             a.divisions.push(d.id);
             i++;
         }
+    };
+    // ---------- 集团军自定义：数量、名称、将领、编成 ----------
+    /** 新生成一名将领（先用国家专属名字池，用尽后按序号命名） */
+    Army.newGeneral = function (w, c) {
+        c.generals = c.generals || [];
+        const pool = FIRST_NAMES[c.tag] || DEFAULT_NAMES;
+        const used = {};
+        for (const g of c.generals)
+            used[g.name] = true;
+        let name = null;
+        for (const n of pool)
+            if (!used[n]) {
+                name = n;
+                break;
+            }
+        if (!name)
+            name = '第' + (c.generals.length + 1) + '军司令';
+        const i = c.generals.length;
+        const traitKeys = Object.keys(PSE.TRAITS);
+        const g = {
+            id: (c.generalSeq = Math.max(c.generalSeq || 0, i) + 1),
+            name: name,
+            attack: 2 + (i % 3), defense: 2 + ((i + 1) % 3), planning: 2 + (i % 2),
+            level: 1, xp: 0, traits: [traitKeys[(i * 3 + c.tag.length) % traitKeys.length]],
+        };
+        c.generals.push(g);
+        return g;
+    };
+    /** 新建集团军（自动配一名新将领），数量不设上限 */
+    Army.add = function (w, c, name) {
+        Army.ensure(w, c);
+        const g = Army.newGeneral(w, c);
+        let maxId = 0;
+        for (const a of c.armies)
+            maxId = Math.max(maxId, a.id || 0);
+        const id = (c.armySeq = Math.max(c.armySeq || 0, maxId) + 1);
+        const a = {
+            id, name: (name && String(name).trim()) || (id + ' 集团军'), generalId: g.id,
+            divisions: [], order: 'hold', orderTarget: null, plan: 0,
+        };
+        c.armies.push(a);
+        return a;
+    };
+    /** 把某个师从它所属的集团军里摘出来 */
+    Army.detach = function (w, c, d) {
+        for (const a of (c.armies || [])) {
+            const i = a.divisions.indexOf(d.id);
+            if (i >= 0)
+                a.divisions.splice(i, 1);
+        }
+        d.army = null;
+    };
+    /** 解散集团军：下辖部队变为待编（并标记为手动，避免立刻被自动编回） */
+    Army.remove = function (w, c, armyId) {
+        const a = (c.armies || []).find((x) => x.id === armyId);
+        if (!a)
+            return false;
+        for (const id of a.divisions.slice()) {
+            const d = w.divisions.find((x) => x.id === id);
+            if (d) {
+                d.army = null;
+                d.armyManual = 1;
+            }
+        }
+        c.armies = c.armies.filter((x) => x.id !== armyId);
+        return true;
+    };
+    /** 编成：把这些师编入指定集团军（自动从原集团军调出），返回实际编入数 */
+    Army.setDivisions = function (w, c, armyId, ids) {
+        Army.ensure(w, c);
+        const a = (c.armies || []).find((x) => x.id === armyId);
+        if (!a)
+            return 0;
+        let n = 0;
+        for (const id of (ids || [])) {
+            const d = w.divisions.find((x) => x.id === id);
+            if (!d || d.tag !== c.tag)
+                continue;
+            if (d.army !== armyId) {
+                Army.detach(w, c, d);
+                d.army = armyId;
+            }
+            if (a.divisions.indexOf(d.id) < 0)
+                a.divisions.push(d.id);
+            d.armyManual = 1;
+            n++;
+        }
+        return n;
+    };
+    /** 把这些师从所属集团军调出（变为待编，并标记手动） */
+    Army.releaseDivisions = function (w, c, ids) {
+        let n = 0;
+        for (const id of (ids || [])) {
+            const d = w.divisions.find((x) => x.id === id);
+            if (!d || d.tag !== c.tag)
+                continue;
+            Army.detach(w, c, d);
+            d.armyManual = 1;
+            n++;
+        }
+        return n;
+    };
+    Army.rename = function (w, c, armyId, name) {
+        const a = (c.armies || []).find((x) => x.id === armyId);
+        const nm = String(name == null ? '' : name).trim();
+        if (!a || !nm)
+            return false;
+        a.name = nm.slice(0, 24);
+        return true;
+    };
+    /** 换将（generalId=0 表示无将领） */
+    Army.setGeneral = function (w, c, armyId, generalId) {
+        const a = (c.armies || []).find((x) => x.id === armyId);
+        if (!a)
+            return false;
+        const gid = +generalId || 0;
+        if (gid && !(c.generals || []).some((g) => g.id === gid))
+            return false;
+        a.generalId = gid;
+        return true;
+    };
+    /** 自动补齐：清掉手动标记，把待编部队按现有集团军轮流编入 */
+    Army.autoFill = function (w, c) {
+        for (const id of c.divisions) {
+            const d = w.divisions.find((x) => x.id === id);
+            if (d)
+                delete d.armyManual;
+        }
+        Army.assign(w, c);
+        return (c.armies || []).reduce((s, a) => s + a.divisions.length, 0);
     };
     Army.modifiers = function (c, armyId) {
         const a = (c.armies || []).find((x) => x.id === armyId);
