@@ -281,6 +281,22 @@ step('画布 resize：尺寸未变不重置，尺寸变化后立即同步重绘�
   } finally { R.canvas = prevCanvas; R.ctx = prevCtx; }
 });
 
+step('P1 回归：窄屏折叠提示文字的 CSS 选择器不会被 ID 规则覆盖', () => {
+  const fs = require('fs');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const rules = html.match(/[^{}]*\{[^{}]*\}/g) || [];
+  let hideRules = 0;
+  for (const r of rules) {
+    const i = r.indexOf('{');
+    const sel = r.slice(0, i), body = r.slice(i);
+    if (!/\.hintText/.test(sel) || !/display\s*:\s*none/.test(body)) continue;
+    hideRules++;
+    // 裸 .hintText（0,1,0）会被 #toolbar .group{display:flex}（1,1,0）覆盖 → 折叠失效（P1 根因）
+    if (!/#toolbar/.test(sel)) throw new Error('裸选择器「' + sel.trim() + '」优先级不足，窄屏折叠会被覆盖');
+  }
+  if (hideRules < 3) throw new Error('折叠规则不全：期望 ≥3 条（矮屏横屏 / 触屏横屏 / 竖屏），实际 ' + hideRules);
+});
+
 console.log('\n运行结果：' + PSE.Time.format(PSE.Game.world.hour) +
   '｜战斗 ' + (PSE.Game.world.stats.battles || 0) + ' 次｜战争 ' + PSE.Game.world.wars.length + ' 场');
 console.log('\n' + (failures === 0 ? '\x1b[32m冒烟测试全部通过\x1b[0m' : '\x1b[31m失败 ' + failures + ' 项\x1b[0m') + '（检查 ' + checks + ' 项）');

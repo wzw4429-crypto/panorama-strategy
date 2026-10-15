@@ -1,6 +1,8 @@
 # 构建产物与本地运行痕迹
 node_modules/
-tests/.chrome-profile/
+# Chrome headless 截图用的临时 profile（每个 --user-data-dir 一个）
+tests/.chrome-*/
+__pycache__/
 tests/*.png
 *.log
 android/.gradle/

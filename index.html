@@ -68,8 +68,10 @@ window.addEventListener('error', function (e) {
   .small { font-size: 11px; }
   #toolbar { display: flex; align-items: center; gap: 6px; padding: 4px 12px; background: var(--panel2);
     border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-  #toolbar .group { display: flex; gap: 3px; align-items: center; }
-  #toolbar .sep { width: 1px; height: 18px; background: var(--line); }
+  /* 组不参与收缩、按钮文字不换行：窄屏下宁可整组换行/横向滚动，也不要把按钮挤成竖排 */
+  #toolbar .group { display: flex; gap: 3px; align-items: center; flex: 0 0 auto; }
+  #toolbar button { white-space: nowrap; }
+  #toolbar .sep { width: 1px; height: 18px; background: var(--line); flex: 0 0 auto; }
   #main { display: grid; grid-template-columns: 1fr 400px; overflow: hidden; min-height: 0; }
   #mapWrap { position: relative; overflow: hidden; background: var(--sea); min-height: 0; }
   #map { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
@@ -96,6 +98,9 @@ window.addEventListener('error', function (e) {
     #toolbar { padding: 2px 8px; gap: 4px; flex-wrap: nowrap; overflow-x: auto; }
     #toolbar .group { flex-wrap: nowrap; }
     #toolbar .sep { display: none; }
+    /* 工具行横向滚动时，右端「全屏/玩法说明/控制台」钉在可视区右侧，不被滚走 */
+    #toolbar .tail { position: sticky; right: 0; background: var(--panel2); padding-left: 6px;
+      box-shadow: -8px 0 8px -8px rgba(0,0,0,.75); }
     #tabs { padding: 3px 6px; flex-wrap: nowrap; overflow-x: auto; }
     #tabs button { min-height: 28px; padding: 3px 8px; font-size: 12px; }
     #main { grid-template-columns: 1fr 320px; }
@@ -103,7 +108,7 @@ window.addEventListener('error', function (e) {
     #provinceInfo { max-height: 96px; padding: 4px 8px; }
     #panelBody { padding: 6px 8px; }
     #log { font-size: 10px; padding: 3px 8px; }
-    .hintText { display: none; }                 /* 操作提示：手机上占宽度，隐藏 */
+    #toolbar .hintText { display: none; }        /* 必须带 #toolbar：裸 .hintText 会被 #toolbar .group 的 display:flex 覆盖 */
     /* 弹窗在矮屏紧凑化 */
     #startBox { width: min(560px, 94vw); max-height: 92vh; overflow: auto; padding: 14px 18px; }
     #startBox h1 { font-size: 19px; }
@@ -112,7 +117,7 @@ window.addEventListener('error', function (e) {
   }
   /* 触屏横屏（窄一点也算）：提示文字同样隐藏 */
   @media (pointer: coarse) and (orientation: landscape) {
-    .hintText { display: none; }
+    #toolbar .hintText { display: none; }
   }
   /* —— 竖屏/窄屏手机（如 K80 竖屏 480×1067）：地图在上、面板在下，顶栏极限压缩 —— */
   @media (max-width: 760px), (orientation: portrait) and (max-width: 900px) {
@@ -132,12 +137,14 @@ window.addEventListener('error', function (e) {
     #toolbar { padding: 2px 6px; gap: 3px; flex-wrap: nowrap; overflow-x: auto; }
     #toolbar .group { flex-wrap: nowrap; }
     #toolbar .sep { display: none; }
+    #toolbar .tail { position: sticky; right: 0; background: var(--panel2); padding-left: 6px;
+      box-shadow: -8px 0 8px -8px rgba(0,0,0,.75); }
     #tabs { padding: 3px 5px; flex-wrap: nowrap; overflow-x: auto; }
     #tabs button { min-height: 30px; padding: 3px 7px; font-size: 12px; }
     #provinceInfo { max-height: 84px; padding: 3px 7px; }
     #panelBody { padding: 5px 7px; }
     #log { font-size: 10px; padding: 3px 7px; }
-    .hintText { display: none; }
+    #toolbar .hintText { display: none; }
     #startBox { width: min(560px, 94vw); max-height: 92vh; overflow: auto; padding: 14px 18px; }
     #startBox h1 { font-size: 19px; }
     #eventBox, #peaceBox { max-width: 92vw; max-height: 88vh; overflow: auto; padding: 12px 16px; }
@@ -282,7 +289,7 @@ window.addEventListener('error', function (e) {
     <div class="group hintText">
       <span class="muted small">拖动平移 · 滚轮/双指缩放 · 右键下令 · 空格暂停 · 1-5 速度 · L 切图层 · F 全屏 · S 存档 · ~ 控制台</span>
     </div>
-    <div class="group" style="margin-left:auto">
+    <div class="group tail" style="margin-left:auto">
       <button id="btnFs" title="沉浸模式：全屏地图（F）">⛶</button>
       <button id="btnHelp" onclick="document.getElementById('helpBox').classList.toggle('hidden')">玩法说明</button>
       <button onclick="document.getElementById('console').classList.toggle('hidden')">控制台</button>
@@ -294,6 +301,9 @@ window.addEventListener('error', function (e) {
       <canvas id="map"></canvas>
       <div id="helpBox" class="hidden" style="position:absolute;left:12px;top:12px;max-width:560px;background:rgba(12,18,26,.96);border:1px solid #2d3644;border-radius:6px;padding:12px 15px;z-index:20">
         <b>怎么玩</b>
+        <div class="small" style="margin-top:6px;color:#cfe8ff">
+          地图操作：拖动平移 · 滚轮/双指缩放 · 右键下令 · 空格暂停 · 1-5 速度 · L 切图层 · F 全屏 · S 存档 · ~ 控制台
+        </div>
         <div class="small muted" style="margin-top:6px">
           1. 左键点省份看详情；「陆军」面板选中部队（或全选）后，<b>右键点目标省</b>实现行军/进攻。<br>
           2. 「生产」调产线与建设；「装备」自定义坦克/飞机并与他国做军火贸易；「科研」切项目；「国策」走历史路线（分支互斥）。<br>

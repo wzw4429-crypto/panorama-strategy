@@ -2,7 +2,7 @@
 
 > 交接时间：2026-10-15　｜　仓库：`D:\dsh\panorama`（git，分支 `main`）
 > 远端：https://github.com/wzw4429-crypto/panorama-strategy
-> 当前健康度：两套测试全绿（**96/96 + 19/19**，含新增的 3 项回归）；**原 P0 地图红色横带已定位并修复**（见 §4），顺带修掉同源的"空白帧"竞态。
+> 当前健康度：两套测试全绿（**96/96 + 20/20**，含 4 项新增回归）；**P0 地图红色横带、P1 手机横屏排版均已修复**（见 §4）。
 
 ---
 
@@ -132,15 +132,31 @@ Start-Sleep -Seconds 6      # 再 Get-Item shot.png；文件大小 105KB≈空�
 & "<python 绝对路径>" tests/rowprofile.py tests/handover_check.png
 & "<python 绝对路径>" tests/bandlat.py "tests/handover_check.png:1280:0:1"
 ```
-> 注意：`bandlat.py` 的"画布顶部"探测会被 UI 面板色误判（报 canvas_top=30 是错的，真实约 128），改判据需收紧（面板 `#161c24` 应被排除）。
+> 注意：`bandlat.py` 的"画布顶部"探测曾把 UI 面板色（`#161c24` 等，b-r 仅 14~18）误判成海色（报 canvas_top=30），判据已收紧为 `b > r+25`；现可信（1067×480 实测 canvas_top=79）。
 
-### P1 · 手机窄屏排版
-K80 横屏（1067×480）下工具行按钮被换行挤压，"拖动平移·滚轮/双指缩放…"帮助文本与按钮重叠（见 `tests/k80_land_check.png`）。建议：工具行 `flex-wrap` + 把帮助文本折叠进「玩法说明」弹层。竖屏已在 `f70ab2b` 修好（响应式堆叠 + ResizeObserver）。
+### P1 · 手机窄屏排版（**已修复**）
+
+K80 横屏（1067×480）下工具行按钮被换行挤压，"拖动平移·滚轮/双指缩放…"帮助文本与按钮重叠（见 `tests/k80_land_check.png`）。
+
+**根因（CSS 优先级）**：三处窄屏折叠规则写的是裸选择器 `.hintText { display: none; }`（优先级 0,1,0），被基础规则 `#toolbar .group { display: flex; }`（1,1,0）**覆盖**——提示文字从来没被真正隐藏过；而横屏媒体查询又把 `#toolbar` 设成 `flex-wrap: nowrap; overflow-x: auto`，于是提示文字与右侧按钮一起被压成竖排并互相遮挡。
+
+**修复**：
+1. `index.html` 三处改为 `#toolbar .hintText { display: none; }`（矮屏横屏 / 触屏横屏 / 竖屏），并在注释里标明"必须带 #toolbar"。
+2. 基础规则加固：`#toolbar .group { flex: 0 0 auto; }`、`#toolbar button { white-space: nowrap; }`、`#toolbar .sep { flex: 0 0 auto; }` —— 窄屏宁可整组换行/横向滚动，也不再压成竖排。
+3. 横向滚动时右端按钮钉住：`#toolbar .tail { position: sticky; right: 0; background: var(--panel2); ... }`（工具行右端那组加 `class="group tail"`），⛶/玩法说明/控制台 不会被滚走。
+4. 操作提示改在「玩法说明」弹层里也写一份（`#helpBox` 顶部新增"地图操作：拖动平移 · 滚轮/双指缩放 · …"），窄屏隐藏内联提示后仍可发现。
+5. `tests/dom-smoke.js` 新增 P1 回归：解析 `index.html`，禁止裸 `.hintText{display:none}`（会被 ID 规则覆盖），并要求 ≥3 条带 `#toolbar` 的折叠规则。→ 测试数 19 → **20**。
+
+**验证**（Chrome headless，`?auto=GER&speed=3&days=60&zoom=1&layer=political`）：
+- 1067×480：工具行从 3 行/竖排 → 1 行可横向滚动，右端按钮钉住；`tests/bandlat.py` 实测画布顶 y=150 → **79**，地图可视高度 330 → **401 px**（+71px）；截图 `tests/p1_fix2_1067x480.png`
+- K80 等价（CSS 986×444，另测 dpr 2.75 = 2712×1221 设备像素）：正常，截图 `tests/p1_fix2_986x444.png` / `tests/p1_fix2_k80.png`
+- 竖屏 480×1067 与桌面 1680×950：正常；桌面仍显示内联提示文字（未误伤）
+- 基础：`tests/headless.js 3` 96/96、`tests/dom-smoke.js` 20/20
 
 ### P2 · 杂项
 - `package.json` 的 `description` 是乱码（写入时编码坏了，纯 cosmetic）
 - PowerShell 读取 UTF-8 文件（含 `.gitignore`、workflow）会显示乱码——**只是显示问题**，文件本身正常，不要"顺手重写"
-- `tests/` 下有一批未跟踪的取证脚本（`probe9/10/12-15.js`、`forensics.py`、`pngsample.py`、`rowprofile.py`、`bandlat.py`）与截图；`*.png` 已 gitignore，脚本没有
+- `tests/` 取证工具：**保留并入库** `rowprofile.py`（行剖面）＋`bandlat.py`（横带定位，画布顶探测的"面板色误判"已收紧判据）；一次性脚本（`probe9/10/12-15.js`、`forensics.py`、`pngsample.py`）与 `apk_check/`、Chrome 临时 profile、`__pycache__` 已清理；`.gitignore` 新增 `tests/.chrome-*/` 与 `__pycache__/`
 - README 的功能对照表随 UI 演进可能略有出入，修完 bug 顺带更新
 
 ---
@@ -194,7 +210,7 @@ git fetch origin          # 同步 tracking ref（否则 status 会显示 ahead�
 ## 8. 交接后建议的第一步
 
 1. `node server.js 8787` + 浏览器打开，确认可玩（当前服务在本机 8787 已起）
-2. 跑两套测试，确认基线仍为 **96/96 + 19/19**（含 §4 P0 的 3 项回归）
+2. 跑两套测试，确认基线仍为 **96/96 + 20/20**（含 §4 P0/P1 的 4 项回归）
 3. 若再动地图算法：改 `tools/build-map.js` → `node tools/build-map.js` 重生成 `data/map-generated.js`（约 1 分钟）→ 两套测试；**任何跨 ±180° 的环都必须先 `splitAntimeridian` 再参与平面运算**
 4. 若再动渲染时序：`node <npx 缓存里的 tsc.js> -p tsconfig.json` 编译 → 两套测试 → 多次 `zoom=2` 截图（456KB≈正常，105KB≈空白帧）→ 提交
 5. 提交后推送（触发 APK 重建）→ 在 Actions 下载新 APK 实机验证；推送 token 由用户提供
