@@ -401,6 +401,31 @@ function pointInPoly(pt, poly) {
 function bboxOverlap(a, b, pad) {
   return !(a[2] + pad < b[0] || b[2] + pad < a[0] || a[3] + pad < b[1] || b[3] + pad < a[1]);
 }
+// 反经线拆分：Natural Earth 有整环跨 ±180 相接（如俄罗斯楚科奇），
+// 直接把这种环当平面环用，会让 pointInPoly 把"绕远路"的整条北极纬带算作环内、
+// 让 Voronoi 裁剪产出横跨半个地球的长条省（红色横带）、并让本应在此的格子落空。
+// 做法：先把经度解绕成连续值，再按 ±360 平移后裁回 [-180,180]，得到 1~2 个正常环。
+function splitAntimeridian(ring) {
+  if (ring.length < 4) return [ring];
+  const un = [ring[0].slice()];
+  let off = 0;
+  for (let i = 1; i < ring.length; i++) {
+    const d = ring[i][0] - ring[i - 1][0];
+    if (d > 180) off -= 360;
+    else if (d < -180) off += 360;
+    un.push([ring[i][0] + off, ring[i][1]]);
+  }
+  const parts = [];
+  for (const shift of [-360, 0, 360]) {
+    const moved = un.map((p) => [p[0] + shift, p[1]]);
+    const bb = bboxOf(moved);
+    if (bb[2] < -180 || bb[0] > 180) continue;
+    const west = clipHalf(moved, -1, 0, 180);   // 保留 lon >= -180
+    const safe = clipHalf(west, 1, 0, 180);     // 保留 lon <=  180
+    if (safe.length >= 3 && area(safe) > 1e-6) parts.push(safe);
+  }
+  return parts.length ? parts : [ring];
+}
 
 // ============================================================
 // 7. 主流程
@@ -427,11 +452,16 @@ for (const g of topo.objects.countries.geometries) {
     if (!outer || outer.length < 4) continue;
     const bb = bboxOf(outer);
     if (!bboxOverlap(bb, [BBOX.lonMin, BBOX.latMin, BBOX.lonMax, BBOX.latMax], 0)) continue;
-    const clipped = clipBox(outer, BBOX);
-    if (clipped.length < 3 || area(clipped) < 0.12) continue;
-    (countryPolys[code] = countryPolys[code] || []).push({
-      ring: clipped, name, colonial: !!COLONIAL[name], blockIdx: bi, blockKey: name + '#' + bi,
-    });
+    // 先按反经线拆环，再夹到 BBOX：跨 ±180 的环必须拆成两块，否则后续平面运算全部失效
+    const pieces = splitAntimeridian(outer);
+    for (let k = 0; k < pieces.length; k++) {
+      const clipped = clipBox(pieces[k], BBOX);
+      if (clipped.length < 3 || area(clipped) < 0.12) continue;
+      (countryPolys[code] = countryPolys[code] || []).push({
+        ring: clipped, name, colonial: !!COLONIAL[name], blockIdx: bi,
+        blockKey: name + '#' + bi + (pieces.length > 1 ? '.' + k : ''),
+      });
+    }
   }
 }
 function geomsShareBorder(a, b) {

@@ -27,6 +27,44 @@ ok(MD.provinces.length > 600, '省份数 > 600（实际 ' + MD.provinces.length 
 let noNeighbor = 0;
 for (const p of MD.provinces) if (!(p.neighbors || []).length) noNeighbor++;
 ok(noNeighbor <= 15, '孤立省份 ≤ 15（北极真岛/中立区等合法孤岛，实际 ' + noNeighbor + '）');
+// 回归：生成器未拆反经线（±180）时，俄罗斯地块环会"绕远路"，苏联种子撒到大西洋/加拿大，
+// 表现为北极一条红色横带 + 苏联同纬度缺口。判据：全球网格采样不应出现省份互相重叠。
+let overlapPts = 0, overlapAt = '';
+{
+  const inPoly = (poly, x, y) => {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  };
+  const bb = MD.provinces.map((p) => {
+    let a = 1e9, b = 1e9, c = -1e9, d = -1e9;
+    for (const v of p.poly) { if (v[0] < a) a = v[0]; if (v[0] > c) c = v[0]; if (v[1] < b) b = v[1]; if (v[1] > d) d = v[1]; }
+    return [a, b, c, d];
+  });
+  for (let lat = -53; lat <= 77; lat += 3) {
+    for (let lon = -178; lon <= 178; lon += 3) {
+      let n = 0;
+      for (let i = 0; i < MD.provinces.length; i++) {
+        const q = bb[i];
+        if (lon < q[0] || lon > q[2] || lat < q[1] || lat > q[3]) continue;
+        if (inPoly(MD.provinces[i].poly, lon, lat)) n++;
+      }
+      if (n > 1) { overlapPts++; if (!overlapAt) overlapAt = lon + ',' + lat; }
+    }
+  }
+}
+ok(overlapPts === 0, '网格采样无重叠省份（反经线拆分回归，实际 ' + overlapPts + ' 点）', overlapAt);
+let seamRing = 0;
+for (const p of MD.provinces) {
+  for (let i = 0; i < p.poly.length; i++) {
+    const a = p.poly[i], b = p.poly[(i + 1) % p.poly.length];
+    if (Math.abs(a[0] - b[0]) > 180) { seamRing++; break; }
+  }
+}
+ok(seamRing === 0, '省份环无 ±180 接缝边（实际 ' + seamRing + ' 个省）');
 const tagCount = {};
 for (const p of MD.provinces) tagCount[p.owner] = (tagCount[p.owner] || 0) + 1;
 let missingCountry = null;

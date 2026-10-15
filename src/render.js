@@ -52,17 +52,37 @@
             ro.observe(canvas.parentElement);
         }
     };
+    // 重算画布尺寸。给 canvas.width/height 赋值会清空画布并重置 2D 上下文，
+    // 因此：① 尺寸没变就绝不赋值（避免无谓清空）；② 一旦赋值就在同一个任务里同步补画一帧，
+    // 保证画布不会停留在"已清空、还没重绘"的空白态（屏幕截图/切换窗口会看到空白帧或残影）。
     R.resize = function () {
         const c = R.canvas;
         if (!c)
             return;
         const dpr = Math.min(2, root.devicePixelRatio || 1);
-        const w = c.clientWidth || 1200, h = c.clientHeight || 800;
-        c.width = Math.floor(w * dpr);
-        c.height = Math.floor(h * dpr);
+        const w = Math.max(1, Math.round(c.clientWidth || 1200));
+        const h = Math.max(1, Math.round(c.clientHeight || 800));
         R.dpr = dpr;
         R.vw = w;
         R.vh = h;
+        const pw = Math.floor(w * dpr), ph = Math.floor(h * dpr);
+        if (c.width === pw && c.height === ph)
+            return; // 尺寸未变：不要赋值
+        c.width = pw;
+        c.height = ph;
+        if (R._syncing || !R.game || !R.game.world)
+            return; // 绘制中由本帧负责；世界未建则无需补画
+        R._syncing = true;
+        try {
+            R.draw(0);
+        }
+        catch (e) {
+            if (root.console)
+                root.console.error('resize 后同步重绘失败', e);
+        }
+        finally {
+            R._syncing = false;
+        }
     };
     // ---------- 坐标变换 ----------
     function viewScale() {
@@ -149,6 +169,13 @@
         const g = R.game, w = g.world, ctx = R.ctx;
         if (!w)
             return;
+        // 自检：backing store 与视口/dpr 不一致（例如上一次 resize 被跳过）时先补齐尺寸，本帧随后整幅重绘
+        const cvs = R.canvas;
+        if (cvs && !R._syncing) {
+            const d = R.dpr || 1;
+            if (cvs.width !== Math.floor(R.vw * d) || cvs.height !== Math.floor(R.vh * d))
+                R.resize();
+        }
         const t0 = (root.performance || Date).now();
         ctx.setTransform(R.dpr || 1, 0, 0, R.dpr || 1, 0, 0);
         const layer = R.layer || 'political';

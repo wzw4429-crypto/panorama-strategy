@@ -252,6 +252,35 @@ step('长时间运行（1 年）无异常且状态有限', () => {
   if (bad.length) throw new Error('出现非有限数值: ' + bad.join(', '));
 });
 
+step('画布 resize：尺寸未变不重置，尺寸变化后立即同步重绘（P0 空白帧回归）', () => {
+  const R = PSE.Render;
+  let wSets = 0, hSets = 0, draws = 0;
+  const stub = {
+    _w: 0, _h: 0, clientWidth: 800, clientHeight: 600,
+    get width() { return this._w; },
+    set width(v) { wSets++; this._w = v; },
+    get height() { return this._h; },
+    set height(v) { hSets++; this._h = v; },
+    getContext() { return ctxStub; },
+    getBoundingClientRect() { return { left: 0, top: 0, width: 800, height: 600 }; },
+  };
+  const prevCanvas = R.canvas, prevCtx = R.ctx;
+  try {
+    R.init(stub, PSE.Game);
+    if (wSets !== 1 || hSets !== 1) throw new Error('首次 resize 未设置画布尺寸：' + wSets + '/' + hSets);
+    R.resize();
+    if (wSets !== 1) throw new Error('尺寸未变却重新赋值（会清空画布）：width 赋值 ' + wSets + ' 次');
+    const orig = R.draw;
+    R.draw = function (dt) { draws++; return orig.call(R, dt); };
+    try {
+      stub.clientWidth = 900;
+      R.resize();
+    } finally { R.draw = orig; }
+    if (wSets !== 2) throw new Error('尺寸变化后未重新分配画布：' + wSets);
+    if (draws !== 1) throw new Error('尺寸变化后未同步重绘（会留下空白帧）：draws=' + draws);
+  } finally { R.canvas = prevCanvas; R.ctx = prevCtx; }
+});
+
 console.log('\n运行结果：' + PSE.Time.format(PSE.Game.world.hour) +
   '｜战斗 ' + (PSE.Game.world.stats.battles || 0) + ' 次｜战争 ' + PSE.Game.world.wars.length + ' 场');
 console.log('\n' + (failures === 0 ? '\x1b[32m冒烟测试全部通过\x1b[0m' : '\x1b[31m失败 ' + failures + ' 项\x1b[0m') + '（检查 ' + checks + ' 项）');
