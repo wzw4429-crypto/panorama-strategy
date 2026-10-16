@@ -2,7 +2,7 @@
 
 > 交接时间：2026-10-15　｜　仓库：`D:\dsh\panorama`（git，分支 `main`）
 > 远端：https://github.com/wzw4429-crypto/panorama-strategy
-> 当前健康度：两套测试全绿（**108/108 + 22/22**，含 5 项新增回归与集团军自定义检查）；P0 地图红色横带、P1 手机横屏排版均已修复（见 §4）；另按用户要求补上「师团点名 / 按名字组合 / 编组」（§5）与「集团军自定义：数量/名称/将领/编成」（§5）。
+> 当前健康度：两套测试全绿（**118/118 + 24/24**）；已修 P0 地图红色横带与空白帧（§4）、P1 手机横屏排版（§4）、生产面板闪白与新增产线口径（§4）；（§5）另按用户要求补上「师团点名 / 按名字组合 / 编组」「集团军自定义：数量/名称/将领/编成」「国策 / 科研等面板全屏观看使用」。
 
 ---
 
@@ -25,16 +25,16 @@ node server.js 8787           # node 不在 PATH，见 §6 绝对路径
 # 浏览器打开 http://127.0.0.1:8787/   或直接双击 index.html
 
 # 2) 跑测试（改任何逻辑后必跑）
-node --max-old-space-size=3072 tests/headless.js 3     # 94 项：地图/世界/3年长跑/确定性/存档/战斗/扩展系统/剧本
-node tests/dom-smoke.js                                # 18 项：DOM 桩渲染 + 全部面板
+node --max-old-space-size=3072 tests/headless.js 3     # 118 项：地图/世界/3年长跑/确定性/存档/战斗/扩展系统/剧本/生产口径
+node tests/dom-smoke.js                                # 24 项：DOM 桩渲染 + 全部面板 + 面板刷新/全屏回归
 
 # 3) 改 TS 后必须重新编译（浏览器加载的是 src/*.js）
 npm run build      # = tsc -p tsconfig.json，就地 emit src/*.js
 ```
 
-游戏内：`空格` 暂停、`1-5` 速度、`L` 切图层、`S` 存档、`~` 控制台。
+游戏内：`空格` 暂停、`1-5` 速度、`L` 切图层、`S` 存档、`~` 控制台、`F` 全屏地图、`Shift+F` 或面板右上「⛶ 全屏」= 面板全屏（国策/科研放大看，`Esc` 退出）。
 调试用 URL 参数（`src/main.ts` 末尾解析）：
-`?auto=GER&speed=3&days=60&zoom=1&layer=political&tab=equipment&focus=柏林&ironman=0`
+`?auto=GER&speed=3&days=60&zoom=1&layer=political&tab=equipment&focus=柏林&ironman=0&panelfs=1`（`panelfs=1` = 以面板全屏开局，截图/深链用）
 
 ---
 
@@ -165,12 +165,15 @@ K80 横屏（1067×480）下工具行按钮被换行挤压，"拖动平移·滚�
 
 | 要求 | 出处 | 状态 |
 |---|---|---|
-| 修到"没有任何一点 bug"再推送 | m01338 | P0/P1 已修并本地提交（`d51d3cc` + `0cee85a` + 本次），待用户确认后推送 |
-| 每次修完自己跑测试并全面复查代码 | m01338 | 持续执行中（现 99/99 + 21/21） |
+| 修到"没有任何一点 bug"再推送 | m01338 | P0/P1 + 本轮三件事已修并本地提交（`d51d3cc` + `0cee85a` + `851312d` + `8dcd51d` + 本次），待用户确认后推送 |
+| 每次修完自己跑测试并全面复查代码 | m01338 | 持续执行中（现 118/118 + 24/24） |
 | 交接文档 | m01471 | **本文档** |
 | 自主推进、不要频繁确认 | 会话早期多轮 | 持续遵守 |
 | 把聚在一地的师拆开、给每个师起名字、按名字组合 | 用户（本轮） | **已实现**：师团名带兵种（如 德国·第3装甲师）；「陆军」面板逐个师点选（拆堆叠）、按名字组合选中、「存为编组」一键召回（随存档持久化） |
 | 集团军数量与编成可自定义 | 用户（本轮） | **已实现**：`PSE.Army.add/remove/rename/setGeneral/setDivisions/releaseDivisions/autoFill`；面板上 新建集团军/解散/改名/换将/编入选中师/调出选中师/自动补齐；手动编成（`d.armyManual`）不被每日自动编组覆盖，`ensure` 改用 `c.armiesInit` 标记（玩家可把集团军全解散而不被重建） |
+| 点开生产线的下拉「闪一下变白」 | 用户（本轮） | **已修复**：面板每 350ms 整块 `innerHTML` 重建（见 §4），改为「内容签名不动就不重建 + 正在交互（焦点在 select/input）时挂起；重绘后按 id 恢复下拉选择/焦点」，并给聊天/日志加 `willChange: transform` 减重排 |
+| 有空的军工工厂，点「新增产线」却说「没有空闲」 | 用户（本轮） | **已修复**：面板显示的 `空闲` 与命令 `Prod.freeMil` 不是同一口径（面板 `free = mil - used` 只减了「已分配产线数」，命令还要求有空闲工厂且选中项是陆/空军装备；选到舰船/未知装备会直接报没有空闲）。现在统一用 `PSE.Cmd.prodFreeMil()`，提示区分「占用中」与「真没有工厂」，并在空闲为 0 时给出「怎么才有空闲」的指引 |
+| 国策 / 科研等面板要能全屏观看、使用 | 用户（本轮） | **已实现**：面板右上「⛶ 全屏」/ `Shift+F` / URL `&panelfs=1`；全屏后 `#side` 铺满窗口，顶部条可一键切换 政治/生产/装备/科研/国策/陆军/海军/空军/谍报/外交/后勤/战报，国策树/科研列表按窗口高度放大，`Esc` 退出；地图全屏仍是 `F` |
 
 推送流程（remote 已去掉 token）：
 ```powershell
@@ -191,6 +194,7 @@ git fetch origin          # 同步 tracking ref（否则 status 会显示 ahead�
 | Chrome | `C:\Program Files\Google\Chrome\Application\chrome.exe`，用 `--headless=new`；**截图文件异步生成，命令返回后要 `Start-Sleep 5-6s`**；必须带独立 `--user-data-dir`（默认 profile 被占用会静默失败） |
 | Python（取证） | `C:\Users\wupengyaguangyaxuan\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe`（含 Pillow；`rowprofile.py` 甚至不用它，纯 zlib 解 PNG） |
 | `--dump-dom` | 与 `--virtual-time-budget` 同用；输出重定向后同样要等进程结束再读，过早读会得到空文件 |
+| `--virtual-time-budget` 会挂住 | headless 加 `--virtual-time-budget=…` 时，本工程有 `requestAnimationFrame` 主循环 + 350ms 定时器，虚拟时间跑不完会**一直不退出**（实测 120s 被杀，截图 0 字节）。截图/取 DOM 只等真实时间（`--timeout=…` 或直接 `Start-Sleep`），不要用虚拟时间预算 |
 | 本地服务 | `node server.js 8787`；已加 `no-store` 缓存头（改了 JS 不生效时先怀疑缓存） |
 | 复现地图 bug 的最短路径 | `?auto=GER&speed=3&days=60&zoom=1&layer=political` → 看顶部/高纬是否出现横带；`zoom=2` 多截几次看是否空白 |
 
@@ -212,7 +216,7 @@ git fetch origin          # 同步 tracking ref（否则 status 会显示 ahead�
 ## 8. 交接后建议的第一步
 
 1. `node server.js 8787` + 浏览器打开，确认可玩（当前服务在本机 8787 已起）
-2. 跑两套测试，确认基线仍为 **96/96 + 20/20**（含 §4 P0/P1 的 4 项回归）
+2. 跑两套测试，确认基线仍为 **118/118 + 24/24**（含 §4 P0/P1 的 4 项回归、生产口径与面板刷新/全屏回归）
 3. 若再动地图算法：改 `tools/build-map.js` → `node tools/build-map.js` 重生成 `data/map-generated.js`（约 1 分钟）→ 两套测试；**任何跨 ±180° 的环都必须先 `splitAntimeridian` 再参与平面运算**
 4. 若再动渲染时序：`node <npx 缓存里的 tsc.js> -p tsconfig.json` 编译 → 两套测试 → 多次 `zoom=2` 截图（456KB≈正常，105KB≈空白帧）→ 提交
 5. 提交后推送（触发 APK 重建）→ 在 Actions 下载新 APK 实机验证；推送 token 由用户提供

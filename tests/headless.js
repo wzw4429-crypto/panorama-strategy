@@ -423,5 +423,43 @@ section('8. 剧本与难度');
 })();
 
 // ============================================================
+section('9. 生产：新增产线口径与提示（「有空工厂却说没有空闲」回归）');
+(function productionUx() {
+  const w = PSE.World.create({ playerTag: 'GER', seed: 7 });
+  const c = w.countries.GER;
+  c.production.length = 0;
+  c.factories.mil = 6;
+  ok(PSE.Cmd.prodFreeMil(c) === 6 && PSE.Cmd.prodUsedMil(c) === 0, '空闲军工口径：无产线时 = 军工总数（空闲 ' + PSE.Cmd.prodFreeMil(c) + '）');
+  // 面板显示「空闲 N」时点新增必须成功（旧 bug：面板说有空闲、点击却提示没有空闲）
+  const r1 = PSE.Cmd.addProductionEx(w, 'infantry_equipment_1');
+  ok(r1.ok && c.production.length === 1, '有空闲军工时新增产线成功：' + r1.msg);
+  ok(PSE.Cmd.prodUsedMil(c) === 6 && PSE.Cmd.prodFreeMil(c) === 0, '新增后空闲军工归零（已分配 6）');
+  // 同一装备再点：并入已有产线，不新建、不报错
+  c.factories.mil = 9;
+  const r2 = PSE.Cmd.addProductionEx(w, 'infantry_equipment_1');
+  ok(r2.ok && c.production.length === 1 && c.production[0].factories === 9, '同一装备再次新增 = 并入已有产线：' + r2.msg);
+  // 真没有空闲时，原因必须准确（不再把别的原因说成「没有空闲军工」）
+  const r3 = PSE.Cmd.addProductionEx(w, 'artillery_1');
+  ok(!r3.ok && r3.msg.indexOf('没有空闲军用工厂') === 0, '真无空闲时报准确原因：' + r3.msg);
+  // 舰船走船坞：不占军工，一条船坞一条线
+  c.factories.dock = 3;
+  const usedBefore = PSE.Cmd.prodUsedMil(c);
+  const shipId = Object.keys(PSE.EQUIPMENT).find((k) => PSE.EQUIPMENT[k].type === 'naval');
+  const r4 = PSE.Cmd.addProductionEx(w, shipId);
+  ok(r4.ok && PSE.Cmd.prodUsedMil(c) === usedBefore, '舰船新增走船坞产线且不占军工：' + r4.msg);
+  ok(c.production.filter((l) => l.dock).length === 1, '船坞产线登记 1 条');
+  const r5 = PSE.Cmd.addProductionEx(w, shipId);
+  ok(r5.ok && c.production.filter((l) => l.dock).length === 1, '同一舰船再次新增不重复建线：' + r5.msg);
+  // 产线 +N 的额度用尽时给出提示（旧版静默夹住，玩家以为有空工厂却加不了）
+  c.factories.mil = 9;
+  const line = c.production[0];
+  c.factories.mil = 12;
+  PSE.Cmd.setProdFactories(w, line.id, line.factories + 1);
+  ok(line.factories === 10, '产线 +1 在有空闲军工时生效（' + line.factories + '）');
+  PSE.Cmd.setProdFactories(w, line.id, 99);
+  ok(line.factories === 12 && PSE.Cmd.prodUsedMil(c) === 12, '产线 +1 超额时夹到军工上限（不出现空闲为负）');
+})();
+
+// ============================================================
 console.log('\n' + (failures === 0 ? '\x1b[32m全部通过\x1b[0m' : '\x1b[31m失败 ' + failures + ' 项\x1b[0m') + '（检查 ' + checks + ' 项）');
 process.exit(failures === 0 ? 0 : 1);

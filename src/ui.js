@@ -93,43 +93,116 @@
     // ============================================================
     // 右侧面板
     // ============================================================
-    UI.renderPanel = function (g) {
-        const w = g.world, c = player(w);
-        const el = $('panelBody');
-        switch (tab) {
-            case 'production':
-                el.innerHTML = panelProduction(w, c);
-                break;
-            case 'research':
-                el.innerHTML = panelResearch(w, c);
-                break;
-            case 'focus':
-                el.innerHTML = panelFocus(w, c);
-                break;
-            case 'army':
-                el.innerHTML = panelArmy(w, c);
-                break;
-            case 'diplomacy':
-                el.innerHTML = panelDiplomacy(w, c);
-                break;
-            case 'logistics':
-                el.innerHTML = panelLogistics(w, c);
-                break;
-            case 'equipment':
-                el.innerHTML = panelEquipment(w, c);
-                break;
-            case 'navy':
-                el.innerHTML = panelNavy(w, c);
-                break;
-            case 'air':
-                el.innerHTML = panelAir(w, c);
-                break;
-            case 'spy':
-                el.innerHTML = panelSpy(w, c);
-                break;
-            default: el.innerHTML = '';
+    const TAB_NAME = {
+        production: '生产', equipment: '装备设计', research: '科研', focus: '国策', army: '陆军',
+        navy: '海军', air: '空军', spy: '谍报', diplomacy: '外交', logistics: '后勤',
+    };
+    let panelHtml = null; // 上次写入 #panelBody 的 HTML：用于跳过无变化的重绘
+    let panelPressed = false; // 面板内按住鼠标期间不重绘（否则点击会被吞掉）
+    let panelFs = false; // 面板全屏（国策/科研等放大观看）
+    let headerKey = ''; // 顶部条缓存（避免每帧重建按钮）
+    let lastGame = null; // 供顶部条按钮回到游戏上下文
+    let newProdPick = 'infantry_equipment_1'; // 新增产线下拉的当前选择（重绘后仍保留）
+    /**
+     * 面板顶部条（#tabs 原本是空条）：显示当前面板名；全屏时额外提供全部标签页按钮，
+     * 全屏按钮在所有面板都可用——国策树/科研列表放大后更好看也好点。
+     */
+    function renderPanelHeader(force) {
+        const el = $('tabs');
+        if (!el)
+            return;
+        const key = tab + '|' + (panelFs ? 'fs' : '') + '|' + (panelFs ? '' : TAB_NAME[tab]);
+        if (!force && el.innerHTML && key === headerKey)
+            return;
+        headerKey = key;
+        let h = '<span class="panelTitle">' + (TAB_NAME[tab] || tab) + '</span>';
+        if (panelFs) {
+            h += '<span class="panelTabs">' + Object.keys(TAB_NAME).map((k) => '<button class="mini' + (k === tab ? ' on' : '') + '" data-panelfstab="' + k + '">' + TAB_NAME[k] + '</button>').join('') + '</span>';
         }
+        h += '<span class="grow"></span>' +
+            '<button class="mini' + (panelFs ? ' on' : '') + '" data-panelfs="1" title="面板全屏，国策/科研看得更全（Esc 退出）">' +
+            (panelFs ? '✕ 退出全屏' : '⛶ 全屏') + '</button>';
+        el.innerHTML = h;
+        const fsBtn = el.querySelector('[data-panelfs]');
+        if (fsBtn)
+            fsBtn.onclick = () => UI.setPanelFullscreen(!panelFs);
+        el.querySelectorAll('[data-panelfstab]').forEach((b) => b.onclick = () => UI.setTab(b.dataset.panelfstab, lastGame));
+    }
+    /** 面板全屏：把 #side 铺满窗口（地图仍在后面），标签页与全屏按钮随面板一起放大 */
+    UI.setPanelFullscreen = function (on) {
+        panelFs = !!on;
+        const side = $('side');
+        if (side)
+            side.classList.toggle('panelFs', panelFs);
+        renderPanelHeader(true);
+        if (lastGame)
+            UI.renderPanel(lastGame); // 立刻重绘：国策树/科研列表的高度随全屏马上变化
+        if (panelFs)
+            UI.toast('面板全屏：Esc 或再点「退出全屏」返回');
+        return panelFs;
+    };
+    UI.panelFullscreen = () => panelFs;
+    /** 面板内是否正在被操作（下拉展开 / 输入框聚焦 / 鼠标按住）——此时重建 DOM 会关掉下拉、丢点击 */
+    function panelBusy(el) {
+        if (panelPressed)
+            return true;
+        try {
+            const a = document.activeElement;
+            if (a && a !== document.body && el && el.contains && el.contains(a)) {
+                const t = String(a.tagName || '').toUpperCase();
+                if (t === 'SELECT' || t === 'INPUT' || t === 'TEXTAREA')
+                    return true;
+            }
+        }
+        catch (e) { /* 测试桩没有 activeElement */ }
+        return false;
+    }
+    function panelHtmlOf(g) {
+        const w = g && g.world;
+        if (!w)
+            return '';
+        const c = player(w);
+        switch (tab) {
+            case 'production': return panelProduction(w, c);
+            case 'research': return panelResearch(w, c);
+            case 'focus': return panelFocus(w, c);
+            case 'army': return panelArmy(w, c);
+            case 'diplomacy': return panelDiplomacy(w, c);
+            case 'logistics': return panelLogistics(w, c);
+            case 'equipment': return panelEquipment(w, c);
+            case 'navy': return panelNavy(w, c);
+            case 'air': return panelAir(w, c);
+            case 'spy': return panelSpy(w, c);
+            default: return '';
+        }
+    }
+    /** 命令/按钮回调后重绘：无条件重建 DOM，保证面板立刻反映新状态 */
+    UI.renderPanel = function (g) {
+        const el = $('panelBody');
+        if (!el)
+            return;
+        lastGame = g;
+        const h = panelHtmlOf(g);
+        panelHtml = h;
+        if (el.innerHTML !== h)
+            el.innerHTML = h;
         UI.bindPanel(g);
+    };
+    /**
+     * 定时刷新（主循环每 350ms）：内容没变就完全不动 DOM；玩家正在操作面板控件时跳过。
+     * 修复「点开生产线的下拉 → 面板每 350ms 重建 → 下拉闪一下变白、选项点不中」。
+     */
+    UI.tickPanel = function (g) {
+        const el = $('panelBody');
+        if (!el)
+            return;
+        lastGame = g;
+        const h = panelHtmlOf(g);
+        if (h === panelHtml)
+            return; // 内容没变：一个 DOM 节点都不碰
+        if (panelBusy(el))
+            return; // 交互结束后由下一次 tick 或命令回调接上
+        UI.renderPanel(g);
     };
     // ============================================================
     // 装备设计器 + 军事装备贸易
@@ -318,12 +391,32 @@
         h += '</div>';
         return h;
     }
-    function equipOptions(sel) {
-        return Object.keys(PSE.EQUIPMENT).map((id) => '<option value="' + id + '"' + (id === sel ? ' selected' : '') + '>' + PSE.EQUIPMENT[id].name + '</option>').join('');
+    /** 装备下拉：kind='mil' 只列陆空军装备，'dock' 只列舰船，缺省列全部 */
+    function equipOptions(sel, kind) {
+        const ids = Object.keys(PSE.EQUIPMENT);
+        const isNaval = (id) => PSE.EQUIPMENT[id].type === 'naval';
+        const one = (id) => '<option value="' + id + '"' + (id === sel ? ' selected' : '') + '>' + PSE.EQUIPMENT[id].name + '</option>';
+        if (kind === 'mil')
+            return ids.filter((id) => !isNaval(id)).map(one).join('');
+        if (kind === 'dock')
+            return ids.filter(isNaval).map(one).join('');
+        return ids.map(one).join('');
+    }
+    /** 新增产线的装备下拉：按「陆空军 / 舰船」分组，选舰船会自动开船坞产线 */
+    function newProdOptions(sel) {
+        const ids = Object.keys(PSE.EQUIPMENT);
+        const one = (id) => '<option value="' + id + '"' + (id === sel ? ' selected' : '') + '>' + PSE.EQUIPMENT[id].name + '</option>';
+        const mil = ids.filter((id) => PSE.EQUIPMENT[id].type !== 'naval');
+        const dock = ids.filter((id) => PSE.EQUIPMENT[id].type === 'naval');
+        return (mil.length ? '<optgroup label="陆空军装备">' + mil.map(one).join('') + '</optgroup>' : '') +
+            (dock.length ? '<optgroup label="舰船（占船坞）">' + dock.map(one).join('') + '</optgroup>' : '');
     }
     function panelProduction(w, c) {
-        const used = c.production.reduce((s, l) => s + (l.dock ? 0 : l.factories), 0);
-        const free = c.factories.mil - used;
+        // 与命令共用同一口径：船坞产线不占军工（曾因面板按 !dock 统计、命令把船坞算进 used 而不一致）
+        const used = PSE.Cmd.prodUsedMil(c);
+        const free = PSE.Cmd.prodFreeMil(c);
+        const dockLines = c.production.filter((l) => l.dock);
+        const freeDock = Math.max(0, (c.factories.dock || 0) - dockLines.length);
         let h = '<div class="sec"><div class="secTitle">军用生产线 <span class="muted">（军工 ' + c.factories.mil + '，已分配 ' + used + '，空闲 ' + free + '）</span></div>';
         for (const l of c.production) {
             if (l.dock)
@@ -332,26 +425,41 @@
             const out = (l.output || 0).toFixed(1);
             const stock = Math.floor(c.stockpile[l.equipId] || 0);
             h += '<div class="row wrap prodRow">' +
-                '<span class="eqName">' + eq.name + '</span>' +
+                '<span class="eqName">' + (eq ? eq.name : l.equipId) + '</span>' +
                 '<button class="mini" data-prod-dec="' + l.id + '">−</button>' +
                 '<span class="num">' + l.factories + '</span>' +
                 '<button class="mini" data-prod-inc="' + l.id + '">+</button>' +
                 '<span class="muted">效率 ' + Math.round(l.eff * 100) + '%' + (l.switchDays > 0 ? '（换型冷却 ' + l.switchDays + '天）' : '') + '</span>' +
                 '<span class="muted">日产 ' + out + '</span>' +
                 '<span class="muted">库存 ' + stock + '</span>' +
-                '<select data-switch="' + l.id + '">' + equipOptions(l.equipId) + '</select>' +
+                '<select data-switch="' + l.id + '">' + equipOptions(l.equipId, 'mil') + '</select>' +
                 '<button class="mini danger" data-prod-del="' + l.id + '">×</button>' +
                 '</div>';
         }
-        h += '<div class="row"><select id="newProd">' + equipOptions('infantry_equipment_1') + '</select>' +
-            '<button data-add-prod="1"' + (free <= 0 ? ' disabled' : '') + '>新增产线</button></div></div>';
-        // 船坞
-        const dockLines = c.production.filter((l) => l.dock);
-        if (dockLines.length) {
-            h += '<div class="sec"><div class="secTitle">海军船坞 <span class="muted">（' + c.factories.dock + ' 座）</span></div>';
+        h += '<div class="row wrap"><select id="newProd">' + newProdOptions(newProdPick) + '</select>' +
+            '<button data-add-prod="1">新增产线</button>' +
+            '<span class="muted small">空闲军工 ' + free + ' 座 · 空闲船坞 ' + freeDock + ' 座（选舰船则开船坞产线）· 该装备已有产线时，新增会把空闲军工并入该线</span></div>';
+        // 空闲为 0 时说清「怎么才会有空闲」：建设中/未完工的军工厂不算空闲，避免误以为有空的军工厂
+        if (free <= 0) {
+            h += '<div class="row small warnish">空闲军工为 0：点产线上的 − 可回收军工，或在下方「建设队列」建「军用工厂」（建成后才会变成空闲军工）' +
+                (c.construction.some((it) => it.kind === 'mil') ? '｜当前有军用工厂在建，等它完工' : '') + '</div>';
+        }
+        if (freeDock <= 0 && dockLines.length) {
+            h += '<div class="row small warnish">空闲船坞为 0：可在船坞产线点 × 拆线，或建「海军船坞」</div>';
+        }
+        h += '</div>';
+        // 船坞（每条产线占 1 座；可换舰型、可拆）
+        if (c.factories.dock || dockLines.length) {
+            h += '<div class="sec"><div class="secTitle">海军船坞 <span class="muted">（' + (c.factories.dock || 0) + ' 座，已用 ' + dockLines.length + '，空闲 ' + freeDock + '）</span></div>';
             for (const l of dockLines) {
                 const eq = PSE.EQUIPMENT[l.equipId];
-                h += '<div class="row"><span class="eqName">' + eq.name + '</span><span class="muted">日产 ' + (l.output || 0).toFixed(1) + '</span><span class="muted">库存 ' + Math.floor(c.stockpile[l.equipId] || 0) + '</span></div>';
+                h += '<div class="row wrap prodRow">' +
+                    '<span class="eqName">' + (eq ? eq.name : l.equipId) + '</span>' +
+                    '<span class="muted">日产 ' + (l.output || 0).toFixed(1) + '</span>' +
+                    '<span class="muted">库存 ' + Math.floor(c.stockpile[l.equipId] || 0) + '</span>' +
+                    '<select data-switch="' + l.id + '">' + equipOptions(l.equipId, 'dock') + '</select>' +
+                    '<button class="mini danger" data-prod-del="' + l.id + '">×</button>' +
+                    '</div>';
             }
             h += '</div>';
         }
@@ -517,7 +625,11 @@
                     '" stroke="#ff9f0a" stroke-width="1.4" stroke-dasharray="4 3" />');
             }
         }
-        h += '<div class="focusWrap" style="height:' + Math.min(520, height + 10) + 'px;width:100%">' +
+        // 面板全屏时国策树跟着长高，一屏看完整棵树（绝不比非全屏时更小）
+        const viewH = (typeof window !== 'undefined' && window.innerHeight) || 800;
+        const normH = Math.min(520, height + 10);
+        const wrapH = panelFs ? Math.max(normH, viewH - 250) : normH;
+        h += '<div class="focusWrap" style="height:' + wrapH + 'px;width:100%">' +
             '<svg width="' + width + '" height="' + height + '" style="position:absolute;left:0;top:0;pointer-events:none">' +
             svg.join('') + '</svg>';
         for (const n of nodes) {
@@ -942,10 +1054,28 @@
     // ============================================================
     UI.bindPanel = function (g) {
         const w = g.world, el = $('panelBody');
+        // 只绑一次：面板内按住鼠标时禁止定时重绘（否则 mousedown 与 mouseup 之间节点被换掉，点击丢失）
+        if (el && el.addEventListener && !UI.bindPanel._pressed) {
+            UI.bindPanel._pressed = true;
+            el.addEventListener('pointerdown', () => { panelPressed = true; }, true);
+            if (document.addEventListener) {
+                document.addEventListener('pointerup', () => { panelPressed = false; }, true);
+                document.addEventListener('pointercancel', () => { panelPressed = false; }, true);
+            }
+        }
+        const np = $('newProd');
+        if (np)
+            np.onchange = () => { newProdPick = np.value; };
         el.querySelectorAll('[data-prod-inc]').forEach((b) => b.onclick = () => {
             const l = player(w).production.find((x) => x.id === +b.dataset.prodInc);
-            if (l)
-                PSE.Cmd.setProdFactories(w, l.id, l.factories + 1);
+            if (l) {
+                const want = l.factories + 1;
+                PSE.Cmd.setProdFactories(w, l.id, want);
+                // 加不上去时说清原因（旧版静默夹住额度，玩家会以为「明明有空工厂却加不了」）
+                if (l.factories < want) {
+                    UI.toast('没有空闲军工可分配（军工 ' + player(w).factories.mil + '，已分配 ' + PSE.Cmd.prodUsedMil(player(w)) + '）', 'warn');
+                }
+            }
             UI.renderPanel(g);
         });
         el.querySelectorAll('[data-prod-dec]').forEach((b) => b.onclick = () => {
@@ -962,10 +1092,17 @@
         if (addBtn)
             addBtn.onclick = () => {
                 const sel = $('newProd');
-                if (sel && PSE.Cmd.addProduction(w, sel.value))
+                if (!sel)
+                    return;
+                newProdPick = sel.value;
+                // 用 addProductionEx 取回真实原因：面板口径与命令口径一致，不再把「已有产线」误报成「没有空闲」
+                const r = PSE.Cmd.addProductionEx(w, sel.value);
+                if (r.ok) {
                     UI.renderPanel(g);
+                    UI.toast(r.msg);
+                }
                 else
-                    UI.toast('没有空闲军用工厂', 'warn');
+                    UI.toast(r.msg || '无法新增产线', 'warn');
             };
         el.querySelectorAll('[data-build]').forEach((b) => b.onclick = () => {
             const pid = (PSE.Render.selectedProv != null) ? PSE.Render.selectedProv : player(w).capital;
@@ -1410,6 +1547,7 @@
     };
     UI.renderAll = function (g) {
         UI.renderTop(g);
+        renderPanelHeader();
         UI.renderPanel(g);
         UI.renderProvince(g, PSE.Render.selectedProv);
         UI.renderLog(g);
@@ -1419,6 +1557,7 @@
     UI.setTab = function (t, g) {
         tab = t;
         document.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === t));
+        renderPanelHeader(true);
         UI.renderPanel(g);
         UI.bindProvince(g);
     };

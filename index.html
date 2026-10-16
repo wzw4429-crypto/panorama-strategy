@@ -66,6 +66,7 @@ window.addEventListener('error', function (e) {
   .ok { color: var(--ok); }
   .muted { color: var(--muted); }
   .small { font-size: 11px; }
+  .warnish { font-size: 11px; color: var(--warn); line-height: 1.5; }
   #toolbar { display: flex; align-items: center; gap: 6px; padding: 4px 12px; background: var(--panel2);
     border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   /* 组不参与收缩、按钮文字不换行：窄屏下宁可整组换行/横向滚动，也不要把按钮挤成竖排 */
@@ -167,6 +168,18 @@ window.addEventListener('error', function (e) {
   #provinceInfo { padding: 7px 10px; border-bottom: 1px solid var(--line); max-height: 210px; overflow: auto; }
   #tabs { display: flex; gap: 3px; padding: 5px 8px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   #panelBody { padding: 8px 10px; overflow: auto; }
+  /* 面板顶部条：显示当前面板名 + 全屏按钮（全屏时列出全部标签页） */
+  #tabs { align-items: center; }
+  #tabs .panelTitle { font-weight: 700; color: #fff; font-size: 12px; white-space: nowrap; }
+  #tabs .grow { flex: 1 1 auto; }
+  #tabs .panelTabs { display: flex; flex-wrap: wrap; gap: 3px; }
+  /* —— 面板全屏（国策树/科研列表放大观看/使用）：面板铺满窗口，地图仍在后面，Esc 退出 —— */
+  #side.panelFs { position: fixed; inset: 0; z-index: 120; border-left: 0; max-height: none;
+    grid-template-rows: auto auto 1fr min(150px, 22vh); box-shadow: 0 0 0 1px var(--line); }
+  #side.panelFs #provinceInfo { max-height: 22vh; }
+  #side.panelFs #panelBody { padding: 10px 16px; }
+  #side.panelFs .techList { max-height: none; }
+  #side.panelFs .focusWrap { max-height: none; }
   #log { overflow: auto; border-top: 1px solid var(--line); padding: 5px 10px; font-size: 11px; background: #121820; }
   .logLine { padding: 1px 0; border-bottom: 1px solid rgba(255,255,255,.03); }
   .logLine.war { color: #ff9d94; }
@@ -302,7 +315,8 @@ window.addEventListener('error', function (e) {
       <div id="helpBox" class="hidden" style="position:absolute;left:12px;top:12px;max-width:560px;background:rgba(12,18,26,.96);border:1px solid #2d3644;border-radius:6px;padding:12px 15px;z-index:20">
         <b>怎么玩</b>
         <div class="small" style="margin-top:6px;color:#cfe8ff">
-          地图操作：拖动平移 · 滚轮/双指缩放 · 右键下令 · 空格暂停 · 1-5 速度 · L 切图层 · F 全屏 · S 存档 · ~ 控制台
+          地图操作：拖动平移 · 滚轮/双指缩放 · 右键下令 · 空格暂停 · 1-5 速度 · L 切图层 · F 全屏 · S 存档 · ~ 控制台<br>
+          面板全屏（国策 / 科研放大观看）：Shift+F，或点面板右上角「⛶ 全屏」；全屏后顶部条可直接切换全部面板，Esc 退出
         </div>
         <div class="small muted" style="margin-top:6px">
           1. 左键点省份看详情；「陆军」面板选中部队（或全选）后，<b>右键点目标省</b>实现行军/进攻。<br>

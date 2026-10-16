@@ -72,7 +72,7 @@
             PSE.UI.renderLog(g);
             const tab = PSE.UI.state.tab();
             if (tab === 'production' || tab === 'army' || tab === 'equipment' || tab === 'navy')
-                PSE.UI.renderPanel(g);
+                PSE.UI.tickPanel(g);
             if (w.gameOver)
                 showGameOver(w);
         }
@@ -297,6 +297,20 @@
         if (fsExit)
             fsExit.onclick = toggleFullscreen;
         document.addEventListener('keydown', (e) => {
+            // Esc 优先：即使焦点在下拉/输入框里也要能退出面板全屏
+            if (e.key === 'Escape' || e.key === 'Esc') {
+                if (PSE.UI.panelFullscreen && PSE.UI.panelFullscreen()) {
+                    PSE.UI.setPanelFullscreen(false);
+                    e.preventDefault();
+                }
+                return;
+            }
+            // Shift+F：面板全屏（国策/科研放大观看）；F 仍是全屏地图
+            if (e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+                PSE.UI.setPanelFullscreen(!PSE.UI.panelFullscreen());
+                e.preventDefault();
+                return;
+            }
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA')
                 return;
             const w = Game.world;
@@ -423,6 +437,9 @@
                     PSE.Render.resize();
                 }
             }
+            // panelfs=1：直接以「面板全屏」开局（国策/科研放大看，截图与深链都用它）
+            if (q.get('panelfs'))
+                PSE.UI.setPanelFullscreen(true);
             PSE.UI.toast('自动开局：' + PSE.COUNTRIES[auto].name);
         }
     });

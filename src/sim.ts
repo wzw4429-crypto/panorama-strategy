@@ -1553,31 +1553,65 @@
     return true;
   };
 
+  /** 军工已分配数（只算陆空军产线；船坞产线占的是 factories.dock，不占军工） */
+  Cmd.prodUsedMil = function (c) {
+    return (c.production || []).reduce((s, l) => s + (l.dock ? 0 : Math.max(0, l.factories || 0)), 0);
+  };
+  /** 空闲军工（面板与命令共用同一口径，避免「面板说有空闲、点击却说没有」） */
+  Cmd.prodFreeMil = function (c) {
+    return Math.max(0, (c.factories.mil || 0) - Cmd.prodUsedMil(c));
+  };
+
   Cmd.setProdFactories = function (w, lineId, n) {
     const c = w.countries[w.playerTag];
     if (!c) return false;
     const line = c.production.find((l) => l.id === lineId);
     if (!line) return false;
     const max = c.factories.mil;
-    const used = c.production.reduce((s, l) => s + (l.dock ? 0 : l.factories), 0);
-    const usedByOthers = used - line.factories;
+    const used = Cmd.prodUsedMil(c);
+    const usedByOthers = used - (line.dock ? 0 : line.factories);
     // 关键：上限 = 本线现有 + 他人未占用的空闲军工，避免出现"空闲为负"
     const cap = Math.max(0, Math.min(max, max - usedByOthers));
     line.factories = Math.max(0, Math.min(n, cap));
     return true;
   };
 
-  Cmd.addProduction = function (w, equipId) {
+  /**
+   * 新增产线（带原因）：把空闲军工开成一条新产线；若该装备已有产线，则把空闲军工并入该线。
+   * 关键修复：空闲口径与面板一致——船坞产线不占军工，过去把它算进来会出现
+   * 「面板显示有空闲军工，点新增却提示没有空闲」。
+   */
+  Cmd.addProductionEx = function (w, equipId) {
     const c = w.countries[w.playerTag];
-    if (!c) return false;
+    if (!c) return { ok: false, msg: '当前没有可操作的国家' };
     const eq = PSE.EQUIPMENT[equipId];
-    if (!eq) return false;
-    const used = c.production.reduce((s, l) => s + l.factories, 0);
-    const free = c.factories.mil - used;
-    if (free <= 0) return false;
-    if (c.production.some((l) => l.equipId === equipId && !l.dock)) return false;
-    c.production.push({ id: w.nextId.prod++, equipId, factories: free, eff: BAL.EQUIP_EFFICIENCY_BASE, active: true });
-    return true;
+    if (!eq) return { ok: false, msg: '未知装备型号' };
+    if (eq.type === 'naval') {
+      // 舰船走船坞：每座船坞一条产线（一条产线 1 座船坞，不占军工）
+      const dockLines = c.production.filter((l) => l.dock);
+      const freeDock = Math.max(0, (c.factories.dock || 0) - dockLines.length);
+      if (freeDock <= 0) return { ok: false, msg: '没有空闲船坞（船坞 ' + (c.factories.dock || 0) + ' 座，已用 ' + dockLines.length + '）' };
+      if (dockLines.some((l) => l.equipId === equipId)) {
+        return { ok: true, msg: '「' + eq.name + '」已有船坞产线（船坞已用 ' + dockLines.length + '/' + (c.factories.dock || 0) + '）' };
+      }
+      const dl = { id: w.nextId.prod++, equipId: equipId, factories: 1, eff: BAL.EQUIP_EFFICIENCY_BASE, active: true, dock: true };
+      c.production.push(dl);
+      return { ok: true, msg: '新增船坞产线：' + eq.name + '（占 1 座船坞，已用 ' + (dockLines.length + 1) + '/' + (c.factories.dock || 0) + '）', lineId: dl.id };
+    }
+    const free = Cmd.prodFreeMil(c);
+    if (free <= 0) return { ok: false, msg: '没有空闲军用工厂（军工 ' + c.factories.mil + '，已分配 ' + Cmd.prodUsedMil(c) + '）' };
+    const same = c.production.find((l) => l.equipId === equipId && !l.dock);
+    if (same) {
+      same.factories += free;
+      return { ok: true, msg: '「' + eq.name + '」已有产线，已并入 ' + free + ' 座军工（共 ' + same.factories + ' 座）', lineId: same.id };
+    }
+    const line = { id: w.nextId.prod++, equipId: equipId, factories: free, eff: BAL.EQUIP_EFFICIENCY_BASE, active: true };
+    c.production.push(line);
+    return { ok: true, msg: '新增产线：' + eq.name + '（' + free + ' 座军工）', lineId: line.id };
+  };
+
+  Cmd.addProduction = function (w, equipId) {
+    return Cmd.addProductionEx(w, equipId).ok;
   };
 
   Cmd.removeProduction = function (w, lineId) {

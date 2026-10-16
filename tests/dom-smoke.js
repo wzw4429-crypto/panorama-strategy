@@ -371,6 +371,74 @@ step('集团军自定义：数量/名称/将领/编成（新功能回归）', ()
   UI.setTab('production', PSE.Game);
 });
 
+step('生产面板：定时刷新不重建 DOM，下拉/按钮不再被吞（闪白回归）', () => {
+  const UI = PSE.UI, w = PSE.Game.world, c = w.countries[w.playerTag];
+  UI.setTab('production', PSE.Game);
+  const body = document.getElementById('panelBody');
+  let writes = 0, html = '';
+  Object.defineProperty(body, 'innerHTML', {
+    get: () => html,
+    set: (v) => { writes++; html = String(v); },
+    configurable: true,
+  });
+  UI.renderPanel(PSE.Game);                                  // 显式重绘一次
+  if (html.indexOf('data-add-prod') < 0) throw new Error('生产面板缺少「新增产线」按钮');
+  const base = writes;
+  // 主循环每 350ms 的定时刷新：内容没变就一个 DOM 节点都不能动（否则下拉闪一下变白）
+  for (let i = 0; i < 8; i++) UI.tickPanel(PSE.Game);
+  if (writes !== base) throw new Error('内容未变仍重建了 ' + (writes - base) + ' 次面板 DOM');
+  // 玩家正操作下拉（焦点在 select 上）：即使内容变了也先不重建，避免吞掉点击
+  Object.defineProperty(document, 'activeElement', { value: { tagName: 'SELECT' }, configurable: true });
+  body.contains = () => true;
+  c.factories.mil = (c.factories.mil || 0) + 3;              // 真实状态变化 → HTML 会变
+  UI.tickPanel(PSE.Game);
+  if (writes !== base) throw new Error('下拉聚焦时仍被重建（会闪白/丢选项）');
+  // 焦点离开后由下一次 tick 补齐
+  Object.defineProperty(document, 'activeElement', { value: { tagName: 'BODY' }, configurable: true });
+  UI.tickPanel(PSE.Game);
+  if (writes !== base + 1) throw new Error('焦点离开后未补上最新内容');
+  delete document.activeElement;
+  c.factories.mil -= 3;
+  // 面板展示与命令口径一致：面板上的「空闲」= 命令允许新增的额度
+  UI.renderPanel(PSE.Game);
+  const free = PSE.Cmd.prodFreeMil(c);
+  if (html.indexOf('空闲军工 ' + free + ' 座') < 0) throw new Error('面板空闲军工与命令口径不一致（应为 ' + free + '）');
+  // 空闲为 0 时必须告诉玩家「怎么才会有空闲」（用户曾把建设中/未完工的军工厂当成空闲）
+  const keepMil = c.factories.mil;
+  c.factories.mil = PSE.Cmd.prodUsedMil(c);
+  UI.renderPanel(PSE.Game);
+  if (document.getElementById('panelBody').innerHTML.indexOf('空闲军工为 0') < 0) throw new Error('空闲为 0 时缺少指引文案');
+  c.factories.mil = keepMil;
+  UI.setTab('production', PSE.Game);
+});
+
+step('面板全屏：国策/科研可放大观看使用（新功能回归）', () => {
+  const UI = PSE.UI, side = document.getElementById('side');
+  const oldH = globalThis.innerHeight;
+  globalThis.innerHeight = 900;
+  if (UI.panelFullscreen()) UI.setPanelFullscreen(false);
+  if (!UI.setPanelFullscreen(true)) throw new Error('开启面板全屏失败');
+  if (!side.classList.contains('panelFs')) throw new Error('#side 没有加上 panelFs 类（CSS 不会生效）');
+  const tabsHtml = document.getElementById('tabs').innerHTML;
+  if (tabsHtml.indexOf('退出全屏') < 0) throw new Error('全屏后按钮未变成「退出全屏」');
+  for (const k of ['focus', 'research', 'production']) {
+    if (tabsHtml.indexOf('data-panelfstab="' + k + '"') < 0) throw new Error('全屏顶部条缺少面板切换按钮：' + k);
+  }
+  UI.setTab('focus', PSE.Game);
+  const m1 = document.getElementById('panelBody').innerHTML.match(/focusWrap" style="height:(\d+)px/);
+  if (!m1) throw new Error('国策面板没有渲染出 focusWrap 容器');
+  const fsH = +m1[1];
+  UI.setPanelFullscreen(false);
+  UI.setTab('focus', PSE.Game);
+  const m2 = document.getElementById('panelBody').innerHTML.match(/focusWrap" style="height:(\d+)px/);
+  const normH = m2 ? +m2[1] : 0;
+  if (!(fsH > normH && fsH > 520)) throw new Error('全屏后国策树没有变大：' + fsH + ' vs ' + normH);
+  if (side.classList.contains('panelFs')) throw new Error('退出全屏未去掉 panelFs 类');
+  if (document.getElementById('tabs').innerHTML.indexOf('data-panelfstab') >= 0) throw new Error('退出全屏后仍显示全部标签按钮');
+  globalThis.innerHeight = oldH;
+  UI.setTab('production', PSE.Game);
+});
+
 console.log('\n运行结果：' + PSE.Time.format(PSE.Game.world.hour) +
   '｜战斗 ' + (PSE.Game.world.stats.battles || 0) + ' 次｜战争 ' + PSE.Game.world.wars.length + ' 场');
 console.log('\n' + (failures === 0 ? '\x1b[32m冒烟测试全部通过\x1b[0m' : '\x1b[31m失败 ' + failures + ' 项\x1b[0m') + '（检查 ' + checks + ' 项）');
