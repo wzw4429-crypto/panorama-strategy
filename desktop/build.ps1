@@ -141,7 +141,7 @@ try {
 
   # -------------------------------------------------------------- 3. 编译 exe
 
-  Step '3/6 编译桌面壳（go build -trimpath -ldflags "-s -w"）'
+  Step '3/6 编译桌面壳（go build -trimpath -buildvcs=false -ldflags "-s -w"）'
   if (-not (Test-Path -LiteralPath $OutDir)) { New-Item -ItemType Directory -Force -Path $OutDir | Out-Null }
   if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
   New-Item -ItemType Directory -Force -Path $stage | Out-Null
@@ -150,7 +150,8 @@ try {
   $env:CGO_ENABLED = '0'
   $env:GOOS = 'windows'
   $env:GOARCH = 'amd64'
-  & $go build -trimpath -ldflags '-s -w' -o $exePath .
+  # -buildvcs=false：不把 git 提交号/脏标记写进二进制，同一份源码永远产出同一个 exe（可复现）
+  & $go build -trimpath -buildvcs=false -ldflags '-s -w' -o $exePath .
   if ($LASTEXITCODE -ne 0) { throw "go build 失败（退出码 $LASTEXITCODE）" }
 } finally {
   Pop-Location
