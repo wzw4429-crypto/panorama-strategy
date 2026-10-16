@@ -509,9 +509,12 @@
   function techOptions(c, sel) {
     let h = '';
     for (const id in PSE.TECHS) {
+      const done = c.researched.indexOf(id) >= 0;
+      const busy = c.research.some((r) => r && r.techId === id);
       const ok = PSE.Sim.techAvailable(c, id) || id === sel;
+      const tag = done ? '（已研究）' : busy ? '（研究中）' : ok ? '' : '（前置未满足）';
       h += '<option value="' + id + '"' + (id === sel ? ' selected' : '') + (ok ? '' : ' disabled') + '>' +
-        PSE.TECHS[id].name + '（' + areaName(PSE.TECHS[id].area) + '）</option>';
+        PSE.TECHS[id].name + '（' + areaName(PSE.TECHS[id].area) + '）' + tag + '</option>';
     }
     return h;
   }
@@ -1089,8 +1092,10 @@
     };
     el.querySelectorAll('[data-build]').forEach((b: any) => b.onclick = () => {
       const pid = (PSE.Render.selectedProv != null) ? PSE.Render.selectedProv : player(w).capital;
-      if (PSE.Cmd.queueBuild(w, b.dataset.build, pid)) UI.renderPanel(g);
-      else UI.toast('无法在该省建设', 'warn');
+      const r = PSE.Cmd.queueBuildEx(w, b.dataset.build, pid);
+      if (r.ok) UI.toast(r.msg);
+      else UI.toast(r.msg || '无法在该省建设', 'warn');
+      UI.renderPanel(g);
     });
     el.querySelectorAll('[data-advisor]').forEach((b: any) => b.onclick = () => {
       if (!PSE.Cmd.buyAdvisor(w, b.dataset.advisor)) UI.toast('政治点不足', 'warn');
@@ -1101,7 +1106,9 @@
       UI.renderPanel(g);
     });
     el.querySelectorAll('[data-research]').forEach((s) => s.onchange = () => {
-      if (!PSE.Cmd.setResearch(w, +s.dataset.research, s.value)) UI.toast('该科技前置未满足', 'warn');
+      const r = PSE.Cmd.setResearchEx(w, +s.dataset.research, s.value);
+      if (r.ok) UI.toast(r.msg);
+      else UI.toast(r.msg || '无法开始研究', 'warn');
       UI.renderPanel(g);
     });
     el.querySelectorAll('[data-focus]').forEach((b: any) => b.onclick = () => {
@@ -1317,12 +1324,14 @@
     });
     const agBtn = el.querySelector('[data-agency]');
     if (agBtn) agBtn.onclick = () => {
-      if (!PSE.Spy.build(w, player(w))) UI.toast('政治点不足', 'warn');
+      const r = PSE.Spy.buildEx(w, player(w));
+      UI.toast(r.msg, r.ok ? '' : 'warn');
       UI.renderPanel(g);
     };
     const recBtn = el.querySelector('[data-recruit-spy]');
     if (recBtn) recBtn.onclick = () => {
-      if (!PSE.Spy.recruit(w, player(w))) UI.toast('政治点不足或特工已满', 'warn');
+      const r = PSE.Spy.recruitEx(w, player(w));
+      UI.toast(r.msg, r.ok ? '' : 'warn');
       UI.renderPanel(g);
     };
     el.querySelectorAll('[data-spy-go]').forEach((b: any) => b.onclick = () => {

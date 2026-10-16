@@ -158,15 +158,15 @@ panorama/
 │   ├── platform.ts         平台适配层：web / PWA / Tauri / Electron 接入点（统一 store 与文件导出）
 │   └── main.ts             主循环、速度控制、摄像机输入、快捷键、控制台、自动存档
 └── tests/
-    ├── headless.js         12 段回归 146 项（地图/世界/3 年长跑/确定性/存档/战斗校准/扩展系统/剧本难度/集团军/平台层/地图拾取）
-    ├── dom-smoke.js        最小 DOM 桩 27 项（渲染/摄像机/10 面板/设计器/和平会议/控制台/平台层/提示与弹窗）
+    ├── headless.js         13 段回归 157 项（地图/世界/3 年长跑/确定性/存档/战斗校准/扩展系统/剧本难度/集团军/平台层/地图拾取/操作反馈）
+    ├── dom-smoke.js        最小 DOM 桩 28 项（渲染/摄像机/10 面板/设计器/和平会议/控制台/平台层/提示与弹窗）
     └── probe*.js           诊断脚本（战斗链路、战争节奏、组织度、海洋、世界规模）
 ```
 
 **运行测试**
 ```powershell
-node --max-old-space-size=3072 tests/headless.js 3    # 146 项断言
-node --max-old-space-size=3072 tests/dom-smoke.js     # 27 项断言
+node --max-old-space-size=3072 tests/headless.js 3    # 157 项断言
+node --max-old-space-size=3072 tests/dom-smoke.js     # 28 项断言
 node tools/build-map.js                               # 重新生成地图（约 1 分钟）
 ```
 

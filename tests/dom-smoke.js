@@ -109,6 +109,36 @@ step('遍历全部面板标签渲染', () => {
   }
 });
 
+step('科研下拉标注「已研究/前置未满足」，且失败原因不再一律「前置未满足」', () => {
+  const g = PSE.Game;
+  const w = g.world;
+  const c = w.countries[w.playerTag];
+  const avail = Object.keys(PSE.TECHS).find((id) => PSE.Sim.techAvailable(c, id));
+  c.research[0] = { techId: avail, prog: 0, cost: PSE.TECHS[avail].cost };
+  const doneId = Object.keys(PSE.TECHS).filter((id) => id !== avail)[0];
+  if (c.researched.indexOf(doneId) < 0) c.researched.push(doneId);
+  PSE.UI.setTab('research', g);
+  const html = document.getElementById('panelBody').innerHTML;
+  if (html.indexOf('data-research') < 0) throw new Error('科研面板没有科技下拉');
+  if (html.indexOf('（已研究）') < 0) throw new Error('下拉未标注「已研究」');
+  if (html.indexOf('（前置未满足）') < 0) throw new Error('下拉未标注「前置未满足」');
+  const r1 = PSE.Cmd.setResearchEx(w, 0, doneId);
+  if (r1.ok || r1.msg.indexOf('已研究完成') < 0) throw new Error('已研究科技的提示不对：' + r1.msg);
+  const free2 = Object.keys(PSE.TECHS).find((id) => PSE.Sim.techAvailable(c, id));
+  const r2 = PSE.Cmd.setResearchEx(w, 0, free2);
+  if (!r2.ok || !r2.msg) throw new Error('换科研没有成功文案：' + (r2 && r2.msg));
+  // 建造与情报局的成功路径同样要有文案（UI handler 直接 toast 命令返回的 msg）
+  const b = PSE.Cmd.queueBuildEx(w, 'civ', c.capital);
+  if (!b.ok || !b.msg) throw new Error('建造排队没有提示文案');
+  c.pp = 200;
+  const a1 = PSE.Spy.buildEx(w, c);
+  if (!a1.ok || !a1.msg) throw new Error('成立情报局没有提示文案');
+  const a2 = PSE.Spy.buildEx(w, c);
+  if (a2.ok || a2.msg.indexOf('已经成立') < 0) throw new Error('重复成立情报局的提示不对：' + a2.msg);
+  const s1 = PSE.Spy.recruitEx(w, c);
+  if (!s1.ok || !s1.msg) throw new Error('招募特工没有提示文案');
+});
+
 step('摄像机：投影/平移/缩放/点选往返一致', () => {
   const R = PSE.Render;
   R.cam = { x: 0.5, y: 0.34, zoom: 4 };

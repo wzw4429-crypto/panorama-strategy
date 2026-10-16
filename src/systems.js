@@ -607,27 +607,35 @@
         network: { name: '建立抵抗网络', days: 80, risk: 0.25, desc: '在目标国占领区制造抵抗' },
         decrypt: { name: '解密外交电报', days: 40, risk: 0.15, desc: '揭示目标国的战争意图与阵营' },
     };
-    Spy.build = function (w, c) {
+    /** 成立情报局：返回原因（已成立 / 政治点不足），供 UI 提示 */
+    Spy.buildEx = function (w, c) {
         if (c.agency && c.agency.exists)
-            return false;
+            return { ok: false, msg: '情报局已经成立了' };
         if (c.pp < 50)
-            return false;
+            return { ok: false, msg: '政治点不足（成立情报局需要 50，现有 ' + Math.floor(c.pp) + '）' };
         c.pp -= 50;
         c.agency = { exists: true, level: 1, agents: [], network: {} };
         PSE.log(w, c.name + ' 成立情报局', 'pol', c.tag);
-        return true;
+        return { ok: true, msg: '情报局已成立（扣 50 政治点，可开始招募特工）' };
     };
-    Spy.recruit = function (w, c) {
+    Spy.build = function (w, c) {
+        return Spy.buildEx(w, c).ok;
+    };
+    /** 招募特工：返回原因（未成立 / 名额已满 / 政治点不足），供 UI 提示 */
+    Spy.recruitEx = function (w, c) {
         if (!c.agency || !c.agency.exists)
-            return false;
+            return { ok: false, msg: '尚未成立情报局' };
         const max = Math.min(5, 1 + Math.floor(c.factories.civ / 10));
         if (c.agency.agents.length >= max)
-            return false;
+            return { ok: false, msg: '特工名额已满（' + c.agency.agents.length + '/' + max + '，建民用工厂可增加名额）' };
         if (c.pp < 30)
-            return false;
+            return { ok: false, msg: '政治点不足（招募需要 30，现有 ' + Math.floor(c.pp) + '）' };
         c.pp -= 30;
         c.agency.agents.push({ id: c.agency.agents.length + 1, skill: 1 + (w.nextId.spy = (w.nextId.spy || 0) % 3), status: 'idle', mission: null, target: null, progress: 0 });
-        return true;
+        return { ok: true, msg: '已招募一名特工（' + c.agency.agents.length + '/' + max + '，扣 30 政治点）' };
+    };
+    Spy.recruit = function (w, c) {
+        return Spy.recruitEx(w, c).ok;
     };
     Spy.send = function (w, c, targetTag, mission) {
         if (!c.agency || !c.agency.exists)

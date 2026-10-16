@@ -1525,16 +1525,41 @@
     return true;
   };
 
-  Cmd.setResearch = function (w, slotIdx, techId) {
+  /** 排科研：返回失败原因（已研究 / 已在别槽 / 前置未满足 / 学说冲突），供 UI 区分提示 */
+  Cmd.setResearchEx = function (w, slotIdx, techId) {
     const c = w.countries[w.playerTag];
-    if (!c || slotIdx >= c.research.length) return false;
-    if (!techAvailable(c, techId)) return false;
+    if (!c || slotIdx >= c.research.length) return { ok: false, msg: '科研槽无效' };
+    const t = PSE.TECHS[techId];
+    if (c.researched.indexOf(techId) >= 0) return { ok: false, msg: '「' + (t ? t.name : techId) + '」已研究完成，换一项吧' };
+    if (!t) return { ok: false, msg: '没有这项科技' };
+    if (c.research.some((r) => r && r.techId === techId)) return { ok: false, msg: '「' + t.name + '」已在另一个科研槽研究中' };
+    const miss = t.prereq.filter((pr) => c.researched.indexOf(pr) < 0);
+    if (miss.length) {
+      return { ok: false, msg: '「' + t.name + '」前置未满足：需先研究 ' + miss.map((pr) => (PSE.TECHS[pr] ? PSE.TECHS[pr].name : pr)).join('、') };
+    }
+    if (t.area === 'doctrine') {
+      const lock = doctrineLock(c);
+      if (lock && lock.indexOf(techId) < 0 && lock.some((d) => c.researched.indexOf(d) >= 0)) {
+        return { ok: false, msg: '「' + t.name + '」与已选学说冲突（学说一旦选定不可更改）' };
+      }
+      if (lock && c.research.some((r) => r && PSE.TECHS[r.techId] && PSE.TECHS[r.techId].area === 'doctrine')) {
+        return { ok: false, msg: '学说线同时只能研究一项' };
+      }
+    }
+    if (t.exclusiveWith && c.researched.indexOf(t.exclusiveWith) >= 0) {
+      const ex = PSE.TECHS[t.exclusiveWith];
+      return { ok: false, msg: '「' + t.name + '」与已研究的「' + (ex ? ex.name : t.exclusiveWith) + '」互斥' };
+    }
     const old = c.research[slotIdx];
     // 未使用进度部分转移（50%），换科研不再完全白费
     const carried = old ? Math.min(old.prog * 0.5, PSE.TECHS[techId].cost * 0.4) : 0;
     c.research[slotIdx] = { techId, prog: carried, cost: PSE.TECHS[techId].cost };
     if (carried > 0) PSE.log(w, '科研进度转移：' + Math.round(carried) + ' 天进度保留', 'tech', c.tag);
-    return true;
+    return { ok: true, msg: '科研槽 ' + (slotIdx + 1) + ' 开始研究「' + t.name + '」' + (carried > 0 ? '（保留 ' + Math.round(carried) + ' 天进度）' : '') };
+  };
+
+  Cmd.setResearch = function (w, slotIdx, techId) {
+    return Cmd.setResearchEx(w, slotIdx, techId).ok;
   };
 
   /** 更换生产线型号：触发换型惩罚（效率归零 + 冷却），生产装备更替 */
@@ -1629,16 +1654,22 @@
     if (line) line.active = !line.active;
   };
 
-  Cmd.queueBuild = function (w, kind, provId) {
+  /** 排队建造：返回失败原因（省份归属 / 沿海要求），供 UI 区分提示 */
+  Cmd.queueBuildEx = function (w, kind, provId) {
     const c = w.countries[w.playerTag];
-    if (!c) return false;
+    if (!c) return { ok: false, msg: '没有可操作的国家' };
     const def = PSE.BUILDINGS[kind];
-    if (!def) return false;
+    if (!def) return { ok: false, msg: '未知的建筑类型' };
     const p = w.provinces[provId] || w.provinces.find((q) => q.id === c.capital);
-    if (!p || p.controller !== c.tag) return false;
-    if (def.coastal && !p.coastal) return false;
+    if (!p) return { ok: false, msg: '找不到目标省份' };
+    if (p.controller !== c.tag) return { ok: false, msg: '「' + p.name + '」不在你的控制下，不能建设' };
+    if (def.coastal && !p.coastal) return { ok: false, msg: '「' + def.name + '」需要沿海省份，「' + p.name + '」不是' };
     c.construction.push({ kind, prov: p.id, prog: 0, cost: def.cost });
-    return true;
+    return { ok: true, msg: '已在「' + p.name + '」排队建造「' + def.name + '」' };
+  };
+
+  Cmd.queueBuild = function (w, kind, provId) {
+    return Cmd.queueBuildEx(w, kind, provId).ok;
   };
 
   Cmd.changeLaw = function (w, lawKey, value) {

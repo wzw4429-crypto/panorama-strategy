@@ -550,5 +550,42 @@ section('12. 地图拾取 → 世界省份（悬停提示「补给 NaN%」回归
 })();
 
 // ============================================================
+section('13. 操作反馈文案（建造排队 / 科研选型 原因区分）');
+(function () {
+  const w = PSE.World.create({ playerTag: 'GER', seed: 19360103 });
+  const c = w.countries.GER;
+  const own = w.provinces.find((p) => p.controller === 'GER' && !p.coastal);
+  const before = c.construction.length;
+  const b1 = PSE.Cmd.queueBuildEx(w, 'civ', own.id);
+  ok(b1.ok && c.construction.length === before + 1, '建造排队成功且有提示文案：' + b1.msg);
+  ok(b1.msg.indexOf(own.name) >= 0 && b1.msg.indexOf('民用工厂') >= 0, '提示里带省份名与建筑名');
+  ok(PSE.Cmd.queueBuild(w, 'mil', own.id) === true, '布尔 API queueBuild 行为不变（返回 true）');
+  const enemy = w.provinces.find((p) => p.controller !== 'GER');
+  const b2 = PSE.Cmd.queueBuildEx(w, 'civ', enemy.id);
+  ok(!b2.ok && b2.msg.indexOf('不在你的控制下') >= 0, '非己方省份给准确原因：' + b2.msg);
+  const inland = PSE.Cmd.queueBuildEx(w, 'dock', own.id);
+  ok(!inland.ok && inland.msg.indexOf('沿海') >= 0, '船坞在内陆省份给准确原因：' + inland.msg);
+  ok(PSE.Cmd.queueBuildEx(w, 'nope', own.id).ok === false, '未知建筑类型安全失败');
+
+  // 科研：已研究 / 前置未满足 / 成功 三种原因必须区分（旧版一律「前置未满足」）
+  const locked = Object.keys(PSE.TECHS).find((id) => c.researched.indexOf(id) < 0 && PSE.TECHS[id].prereq.length
+    && PSE.TECHS[id].prereq.some((pr) => c.researched.indexOf(pr) < 0) && PSE.TECHS[id].area !== 'doctrine');
+  const rLocked = PSE.Cmd.setResearchEx(w, 0, locked);
+  ok(!rLocked.ok && rLocked.msg.indexOf('前置未满足') >= 0 && rLocked.msg.indexOf('需先研究') >= 0,
+    '前置未满足 → 列出缺的科技：' + rLocked.msg);
+  const doneId = Object.keys(PSE.TECHS).find((id) => c.researched.indexOf(id) < 0 && PSE.Sim.techAvailable(c, id));
+  c.researched.push(doneId);   // 模拟这项已研究完
+  const rResearched = PSE.Cmd.setResearchEx(w, 0, doneId);
+  ok(!rResearched.ok && rResearched.msg.indexOf('已研究完成') >= 0,
+    '选已研究科技 → 「已研究完成」而不是「前置未满足」：' + rResearched.msg);
+  const free = Object.keys(PSE.TECHS).find((id) => PSE.Sim.techAvailable(c, id));
+  const rOk = PSE.Cmd.setResearchEx(w, 0, free);
+  ok(rOk.ok && c.research[0].techId === free, '可研究科技 → 上槽成功且有提示：' + rOk.msg);
+  const rBusy = PSE.Cmd.setResearchEx(w, 1, free);
+  ok(!rBusy.ok && rBusy.msg.indexOf('已在另一个科研槽') >= 0, '同一科技已在别槽 → 准确原因：' + rBusy.msg);
+  ok(PSE.Cmd.setResearch(w, 1, free) === false, '布尔 API setResearch 行为不变（失败返回 false）');
+})();
+
+// ============================================================
 console.log('\n' + (failures === 0 ? '\x1b[32m全部通过\x1b[0m' : '\x1b[31m失败 ' + failures + ' 项\x1b[0m') + '（检查 ' + checks + ' 项）');
 process.exit(failures === 0 ? 0 : 1);
