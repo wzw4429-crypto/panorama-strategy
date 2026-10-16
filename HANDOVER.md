@@ -2,7 +2,7 @@
 
 > 交接时间：2026-10-15　｜　仓库：`D:\dsh\panorama`（git，分支 `main`）
 > 远端：https://github.com/wzw4429-crypto/panorama-strategy
-> 当前健康度：两套测试全绿（**132/132 + 25/25**）；已修 P0 地图红色横带与空白帧（§4）、P1 手机横屏排版（§4）、生产面板闪白与新增产线口径（§4）；（§5）另按用户要求补上「师团点名 / 按名字组合 / 编组」「集团军自定义：数量/名称/将领/编成」「国策 / 科研等面板全屏观看使用」；并已落地**平台适配层** `src/platform.ts`（web 退回原行为，桌面壳注入 `window.PSE_HOST` 即可接管存档/文件对话框，见 §3/§6）。
+> 当前健康度：两套测试全绿（**137/137 + 25/25**）；已修 P0 地图红色横带与空白帧（§4）、P1 手机横屏排版（§4）、生产面板闪白与新增产线口径（§4）；（§5）另按用户要求补上「师团点名 / 按名字组合 / 编组」「集团军自定义：数量/名称/将领/编成」「国策 / 科研等面板全屏观看使用」；并已落地**平台适配层** `src/platform.ts`（web 退回原行为，桌面壳注入 `window.PSE_HOST` 即可接管存档/文件对话框，见 §3/§6）。
 
 ---
 
@@ -25,7 +25,7 @@ node server.js 8787           # node 不在 PATH，见 §6 绝对路径
 # 浏览器打开 http://127.0.0.1:8787/   或直接双击 index.html
 
 # 2) 跑测试（改任何逻辑后必跑）
-node --max-old-space-size=3072 tests/headless.js 3     # 132 项：地图/世界/3年长跑/确定性/存档/战斗/扩展系统/剧本/生产口径/集团军/平台层
+node --max-old-space-size=3072 tests/headless.js 3     # 137 项：地图/世界/3年长跑/确定性/存档/战斗/扩展系统/剧本/生产口径/集团军/平台层
 node tests/dom-smoke.js                                # 25 项：DOM 桩渲染 + 全部面板 + 面板刷新/全屏回归 + 平台层
 
 # 3) 改 TS 后必须重新编译（浏览器加载的是 src/*.js）
@@ -56,7 +56,7 @@ panorama/
 │   ├── systems.ts        装备设计器、军贸/租借、海军舰队与海战、空军任务、间谍、傀儡、燃料、核武
 │   ├── systems2.ts       煤炭、决议与民族精神、将领/集团军/前线计划、学说精通度、阵营、和平会议、自制度、难度、剧本、控制台、MOD
 │   ├── save.ts           存档（经 platform.ts 落到 localStorage / 桌面壳 / 内存）
-│   ├── platform.ts       平台适配层：kind()/store/saveText/openText/notify（web·PWA·Tauri·Electron 接入点）
+│   ├── platform.ts       平台适配层：kind()/isDesktop()/store()/download()/pickText()/notify()/fullscreen()（web·PWA·桌面壳接入点）
 │   ├── render.ts         Canvas 渲染 + 7 图层（补给管网/战线折线/海区航线/空域/抵抗/地形/政治）
 │   ├── ui.ts             顶栏、10 面板、省份详情、事件与和平弹窗、日志、toast、师团点名/编组选择
 │   └── main.ts           主循环(rAF)、速度、摄像机输入、快捷键、控制台、自动存档
@@ -93,6 +93,7 @@ window.PSE_HOST = {
 ```
 
 - `PSE.Platform` 暴露：`kind()` / `isDesktop()` / `isMobile()` / `store()`（= 宿主 kv > localStorage > 内存）/ `storageKind()` / `download(name,text,mime)` / `pickText(accept)` / `notify()` / `fullscreen(on)` / `openExternal(url)` / `info()`
+- **`isDesktop()` 以"有没有宿主"为准**（Go+WebView2 壳报 `kind:'webview2'`，不能只认 tauri/electron）；宿主可显式写 `desktop: false` 表示自己只是伪装成宿主的 web 垫片。`kind()` 只作展示标签，宿主没写 kind 时回退为 `'host'`
 - 宿主方法**逐个**探测：某个方法不存在或抛错只影响那一项，其余仍走 web 实现（浏览器/Android WebView 行为与旧版完全一致）
 - 契约在 `tests/headless.js`（14 项）与 `tests/dom-smoke.js`（1 项）里有回归：断言 web 判定、脚本加载顺序、壳注入后 store/文件对话框被接管、壳移除后回退
 
@@ -188,7 +189,7 @@ K80 横屏（1067×480）下工具行按钮被换行挤压，"拖动平移·滚�
 | 要求 | 出处 | 状态 |
 |---|---|---|
 | 修到"没有任何一点 bug"再推送 | m01338 | P0/P1 + 本轮三件事已修并本地提交（`d51d3cc` + `0cee85a` + `851312d` + `8dcd51d` + 本次），待用户确认后推送 |
-| 每次修完自己跑测试并全面复查代码 | m01338 | 持续执行中（现 132/132 + 25/25） |
+| 每次修完自己跑测试并全面复查代码 | m01338 | 持续执行中（现 137/137 + 25/25） |
 | 交接文档 | m01471 | **本文档** |
 | 自主推进、不要频繁确认 | 会话早期多轮 | 持续遵守 |
 | 把聚在一地的师拆开、给每个师起名字、按名字组合 | 用户（本轮） | **已实现**：师团名带兵种（如 德国·第3装甲师）；「陆军」面板逐个师点选（拆堆叠）、按名字组合选中、「存为编组」一键召回（随存档持久化） |
@@ -217,7 +218,7 @@ git fetch origin          # 同步 tracking ref（否则 status 会显示 ahead�
 | Python（取证） | `C:\Users\wupengyaguangyaxuan\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe`（含 Pillow；`rowprofile.py` 甚至不用它，纯 zlib 解 PNG） |
 | `--dump-dom` | 与 `--virtual-time-budget` 同用；输出重定向后同样要等进程结束再读，过早读会得到空文件 |
 | `--virtual-time-budget` 会挂住 | headless 加 `--virtual-time-budget=…` 时，本工程有 `requestAnimationFrame` 主循环 + 350ms 定时器，虚拟时间跑不完会**一直不退出**（实测 120s 被杀，截图 0 字节）。截图/取 DOM 只等真实时间（`--timeout=…` 或直接 `Start-Sleep`），不要用虚拟时间预算 |
-| 桌面壳 / PWA | 页面加载前注入 `window.PSE_HOST`（契约见 §3）；无宿主时 `PSE.Platform.kind()==='web'`、存档走 localStorage。桌面打包另派了独立的 Bot 负责，web 侧只需保住这个契约 |
+| 桌面壳 / PWA | 页面加载前注入 `window.PSE_HOST`（契约见 §3）；无宿主时 `PSE.Platform.kind()==='web'`、存档走 localStorage。**桌面判定看"有没有宿主"（isDesktop），kind 只是标签**——Go+WebView2 壳报 `webview2` 也照样算桌面。桌面打包另派了独立的 Bot 负责（Go + WebView2，用 `https://panorama.local/` 或 127.0.0.1 临时 HTTP 服务加载，不走 file://），web 侧只需保住这个契约 |
 | 本地服务 | `node server.js 8787`；已加 `no-store` 缓存头（改了 JS 不生效时先怀疑缓存） |
 | 复现地图 bug 的最短路径 | `?auto=GER&speed=3&days=60&zoom=1&layer=political` → 看顶部/高纬是否出现横带；`zoom=2` 多截几次看是否空白 |
 
@@ -239,7 +240,7 @@ git fetch origin          # 同步 tracking ref（否则 status 会显示 ahead�
 ## 8. 交接后建议的第一步
 
 1. `node server.js 8787` + 浏览器打开，确认可玩（当前服务在本机 8787 已起）
-2. 跑两套测试，确认基线仍为 **132/132 + 25/25**（含 §4 P0/P1 的 4 项回归、生产口径与面板刷新/全屏回归、集团军与平台层回归）
+2. 跑两套测试，确认基线仍为 **137/137 + 25/25**（含 §4 P0/P1 的 4 项回归、生产口径与面板刷新/全屏回归、集团军与平台层回归）
 3. 若再动地图算法：改 `tools/build-map.js` → `node tools/build-map.js` 重生成 `data/map-generated.js`（约 1 分钟）→ 两套测试；**任何跨 ±180° 的环都必须先 `splitAntimeridian` 再参与平面运算**
 4. 若再动渲染时序：`node <npx 缓存里的 tsc.js> -p tsconfig.json` 编译 → 两套测试 → 多次 `zoom=2` 截图（456KB≈正常，105KB≈空白帧）→ 提交
 5. 提交后推送（触发 APK 重建）→ 在 Actions 下载新 APK 实机验证；推送 token 由用户提供

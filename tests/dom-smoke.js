@@ -459,6 +459,13 @@ step('平台适配层：浏览器退回原行为，壳契约可注入（桌面�
   }
   if (!found) throw new Error('没有任何面板渲染出「导入存档」按钮');
   UI.setTab('production', PSE.Game);
+  // 新壳（Go + WebView2）：kind 只是标签，桌面判定看有没有宿主
+  try {
+    globalThis.PSE_HOST = { kind: 'webview2' };
+    if (!PSE.Platform.isDesktop()) throw new Error('未知 kind 的宿主应判定为桌面');
+    globalThis.PSE_HOST = { kind: 'webview2', desktop: false };
+    if (PSE.Platform.isDesktop()) throw new Error('desktop:false 的宿主不应判定为桌面');
+  } finally { delete globalThis.PSE_HOST; }
 });
 
 console.log('\n运行结果：' + PSE.Time.format(PSE.Game.world.hour) +

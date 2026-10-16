@@ -158,14 +158,14 @@ panorama/
 │   ├── platform.ts         平台适配层：web / PWA / Tauri / Electron 接入点（统一 store 与文件导出）
 │   └── main.ts             主循环、速度控制、摄像机输入、快捷键、控制台、自动存档
 └── tests/
-    ├── headless.js         10 段回归 132 项（地图/世界/3 年长跑/确定性/存档/战斗校准/扩展系统/剧本难度/集团军/平台层）
+    ├── headless.js         10 段回归 137 项（地图/世界/3 年长跑/确定性/存档/战斗校准/扩展系统/剧本难度/集团军/平台层）
     ├── dom-smoke.js        最小 DOM 桩 25 项（渲染/摄像机/10 面板/设计器/和平会议/控制台/平台层）
     └── probe*.js           诊断脚本（战斗链路、战争节奏、组织度、海洋、世界规模）
 ```
 
 **运行测试**
 ```powershell
-node --max-old-space-size=3072 tests/headless.js 3    # 132 项断言
+node --max-old-space-size=3072 tests/headless.js 3    # 137 项断言
 node --max-old-space-size=3072 tests/dom-smoke.js     # 25 项断言
 node tools/build-map.js                               # 重新生成地图（约 1 分钟）
 ```
@@ -179,10 +179,11 @@ node tools/build-map.js                               # 重新生成地图（约
 
 **平台适配层（Web / PWA / 桌面壳）**
 
-`src/platform.ts` 是页面与宿主之间的唯一接口：`PSE.Platform` 提供 `kind()`（`tauri` / `electron` / `pwa` / `web`）、`store()`（存档落地）、`download()` / `pickText()`（导出/导入存档）、`notify()`、`fullscreen()`、`openExternal()`、`info()`。
+`src/platform.ts` 是页面与宿主之间的唯一接口：`PSE.Platform` 提供 `kind()`（展示标签：`tauri` / `electron` / `webview2` / `pwa` / `web`，宿主未声明时为 `host`）、`isDesktop()`（**看有没有宿主**）、`store()`（存档落地）、`download()` / `pickText()`（导出/导入存档）、`notify()`、`fullscreen()`、`openExternal()`、`info()`。
 
 - 浏览器（含 Android WebView）下全部退回原行为：localStorage + `<a download>` + `<input type=file>`，**无宿主也能玩**
-- 桌面壳只需在页面加载前注入 `window.PSE_HOST`（`{kind, kv:{get,set,remove,keys}, saveFile, openFile, notify, fullscreen, openExternal}`）即可接管存档、文件对话框、通知与窗口全屏；宿主方法逐个探测，缺一个只影响那一项
+- 桌面壳只需在页面加载前注入 `window.PSE_HOST`（`{kind, desktop?, kv:{get,set,remove,keys}, saveFile, openFile, notify, fullscreen, openExternal}`）即可接管存档、文件对话框、通知与窗口全屏；宿主方法逐个探测，缺一个只影响那一项
+- 桌面判定以「有没有宿主」为准：Go + WebView2 壳报 `kind: 'webview2'` 也算桌面（`kind` 只作展示）；宿主显式写 `desktop: false` 时才按 web 处理
 - 存档面板新增「导入存档」，桌面壳下会换成原生打开对话框（走 `PSE_HOST.openFile`）
 - 接入点与协议细节见 `HANDOVER.md` §3/§6
 

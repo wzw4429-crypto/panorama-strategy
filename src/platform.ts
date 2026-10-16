@@ -30,13 +30,21 @@
 
   Platform.kind = function (): string {
     const h = host();
-    if (h && h.kind) return h.kind;
+    if (h) return h.kind || 'host';   // 宿主没说 kind 就给通用标签（kind 只是展示用字符串）
     if (hasTauri()) return 'tauri';
     if (hasElectron()) return 'electron';
     if (isStandalone()) return 'pwa';
     return 'web';
   };
-  Platform.isDesktop = function (): boolean { const k = Platform.kind(); return k === 'tauri' || k === 'electron'; };
+  /** 是否桌面壳：**以"有没有宿主"为准**，kind 只是标签
+   *  （Go+WebView2 壳报 'webview2'，不能再只认 tauri/electron）；
+   *  宿主可显式写 `desktop: false` 表示自己是伪装成宿主的 web 垫片。 */
+  Platform.isDesktop = function (): boolean {
+    const h = host();
+    if (h) return typeof h.desktop === 'boolean' ? !!h.desktop : true;
+    const k = Platform.kind();
+    return k === 'tauri' || k === 'electron';
+  };
   /** 手机/平板：只有浏览器壳才需要「横屏提示 / 触摸手势」这类适配 */
   Platform.isMobile = function (): boolean {
     if (Platform.isDesktop()) return false;

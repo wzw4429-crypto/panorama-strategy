@@ -505,6 +505,21 @@ section('11. 平台适配层（桌面壳接入点 / 浏览器 / 无头降级）'
     delete globalThis.PSE_HOST;
   }
   ok(P.kind() === 'web' && P.storageKind() === 'memory', '壳移除后回到浏览器/内存实现');
+
+  // 新壳（Go + WebView2 等）：kind 只是展示标签，桌面判定看"有没有宿主"
+  try {
+    globalThis.PSE_HOST = { kind: 'webview2' };
+    ok(P.isDesktop(), '未知 kind（webview2）的宿主也判定为桌面');
+    ok(P.kind() === 'webview2', 'kind 原样返回，只作展示');
+    globalThis.PSE_HOST = { kind: 'webview2', desktop: false };
+    ok(!P.isDesktop(), '宿主显式 desktop:false 时不当作桌面');
+    delete globalThis.PSE_HOST;
+    globalThis.PSE_HOST = {};
+    ok(P.isDesktop() && P.kind() === 'host', '宿主没写 kind 时仍判桌面，标签回退 host');
+  } finally {
+    delete globalThis.PSE_HOST;
+  }
+  ok(!P.isDesktop(), '宿主移除后桌面判定复位');
 })();
 
 // ============================================================
