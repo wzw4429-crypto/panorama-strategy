@@ -523,5 +523,32 @@ section('11. 平台适配层（桌面壳接入点 / 浏览器 / 无头降级）'
 })();
 
 // ============================================================
+section('12. 地图拾取 → 世界省份（悬停提示「补给 NaN%」回归）');
+(function () {
+  const w = PSE.World.create({ playerTag: 'GER', seed: 19360102 });
+  // 质心一般落在本省内（个别海岸省例外，扫到第一个能自拾回的即可）
+  let hit = null;
+  for (const p of w.provinces) {
+    const q = PSE.World.provinceAt(w, p.cx, p.cy);
+    if (q && q.id === p.id) { hit = p; break; }
+  }
+  ok(!!hit, '至少一个省份能被自己的质心拾回');
+  const mp = PSE.MapData.pickProvince(hit.cx, hit.cy);
+  ok(!!mp && mp.id === hit.id, 'MapData.pickProvince 返回的是同一 id 的静态地图对象');
+  ok(typeof mp.supply !== 'number' && typeof mp.cityVp !== 'number',
+    '静态地图对象没有 supply/cityVp 运行时字段（这正是「补给 NaN%」+ 胜利点行消失的根源）');
+  ok(mp.vp === hit.cityVp, '静态对象用 vp 存胜利点（字段名不同，混用就读不到）');
+  ok(PSE.MapData.provinces.every((p) => (p.buildings.mil || 0) === 0),
+    '静态地图上军工厂全为 0，运行时才分配（从静态对象读会丢掉军工厂行）');
+  ok(PSE.World.provinceAt(w, hit.cx, hit.cy) === w.provinces[hit.id],
+    'World.provinceAt 解析成世界省份（与 w.provinces[id] 同一对象）');
+  ok(typeof hit.supply === 'number' && isFinite(hit.supply) && !!hit.buildings,
+    '世界省份带 supply（有限数）/buildings 运行时字段');
+  ok(PSE.World.provinceAt(w, -140, -30) === null, '深海坐标返回 null（不误拾）');
+  ok(PSE.World.provinceAt(null, hit.cx, hit.cy) === mp,
+    '世界未建立时退回静态地图对象（不崩，UI 侧按占位符降级）');
+})();
+
+// ============================================================
 console.log('\n' + (failures === 0 ? '\x1b[32m全部通过\x1b[0m' : '\x1b[31m失败 ' + failures + ' 项\x1b[0m') + '（检查 ' + checks + ' 项）');
 process.exit(failures === 0 ? 0 : 1);

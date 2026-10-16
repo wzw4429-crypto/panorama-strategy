@@ -668,6 +668,17 @@
   // ============================================================
   // 序列化
   // ============================================================
+  /** 经纬度 → **世界省份**（运行时对象）。
+   *  注意：`PSE.MapData.pickProvince()` 返回的是静态地图对象（只有 `supplyAt`/`vp` 等生成期字段），
+   *  而悬停提示/命令需要 `supply`/`cityVp`/`buildings` 这些运行时字段——在 UI 里混用会出现「补给 NaN%」。
+   *  所有"屏幕坐标 → 省份"的入口都应走这里。不变量：省份 id = `w.provinces` 下标，`World.byId` 亦然。 */
+  World.provinceAt = function (w, lon, lat) {
+    const mp = MD.pickProvince(lon, lat);
+    if (!mp) return null;
+    const wp = (w && w.provinces && w.provinces[mp.id]) || null;
+    return wp && wp.buildings ? wp : mp;   // 世界未建立（如编辑模式）时退回静态对象
+  };
+
   World.serialize = function (w) { return JSON.stringify(w); };
   World.deserialize = function (json) {
     const w = JSON.parse(json);

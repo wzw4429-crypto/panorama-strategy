@@ -923,6 +923,22 @@
   // ============================================================
   // 省份详情
   // ============================================================
+  /** 悬停提示的 HTML（纯函数，便于回归测试）。
+   *  p 必须是**世界省份**（运行时对象，见 `PSE.World.provinceAt`）：静态地图对象只有 `vp`/`supplyAt`，
+   *  直接拿来读 `supply`/`cityVp`/`buildings` 会算出「补给 NaN%」并且丢掉胜利点/军工厂两行。 */
+  function provinceTooltipHtml(w, p, divCount) {
+    const c = w.countries[p.controller];
+    const sup = (typeof p.supply === 'number' && isFinite(p.supply)) ? Math.round(p.supply * 100) + '%' : '—';
+    const vp = Math.round(p.cityVp || 0);
+    const mil = (p.buildings && p.buildings.mil) || 0;
+    return '<b>' + p.name + '</b>（' + (PSE.Render.TERRAIN_NAME[p.terrain] || p.terrain || '') + '）<br>' +
+      '控制：' + (c ? c.name : '无') + '｜补给 ' + sup +
+      (divCount ? '<br>驻军 ' + divCount + ' 个师' : '') +
+      (vp ? '<br>胜利点 ' + vp : '') +
+      (p.isPort ? '｜港口' : '') + (mil ? '｜军工厂 ' + mil : '');
+  }
+  UI.provinceTooltipHtml = provinceTooltipHtml;
+
   UI.renderProvince = function (g, pid) {
     const w = g.world, c = player(w), p = w.provinces[pid];
     const el = $('provinceInfo');
@@ -977,27 +993,40 @@
   // ============================================================
   // 事件弹窗 / 日志 / 提示
   // ============================================================
+  /** 内容签名：同一事件/会议在每 350ms 的 UI tick 里**不要重建含按钮的 DOM**。
+   *  重建会销毁玩家正按下的按钮（mousedown 与 mouseup 跨过一次重建 → 浏览器不派发 click），
+   *  玩家表现为「点了没反应，要再点一次」。（与生产面板防闪白同一套做法。） */
+  let evtSig = '', peaceSig = '', logSig = '';
+
   UI.renderEvent = function (g) {
     const w = g.world;
     const cur = w.events.current;
     const modal = $('eventModal');
     if (!modal) return;
-    if (!cur || cur.tag !== w.playerTag) { modal.classList.add('hidden'); return; }
+    if (!cur || cur.tag !== w.playerTag) { evtSig = ''; modal.classList.add('hidden'); return; }
     const ev = PSE.EVENTS[cur.id];
-    if (!ev) { w.events.current = null; modal.classList.add('hidden'); return; }
+    if (!ev) { evtSig = ''; w.events.current = null; modal.classList.add('hidden'); return; }
     modal.classList.remove('hidden');
     setText('eventTitle', ev.title);
     setText('eventDesc', ev.desc || '');
+    const sig = cur.tag + '|' + cur.id + '|' + ev.options.length;
     const optEl = $('eventOptions');
-    if (optEl) optEl.innerHTML = ev.options.map((o, i) =>
-      '<div class="eventOpt"><button data-event-opt="' + i + '">' + o.name + '</button>' +
-      '<div class="small muted">' + (o.effects || []).map(describeEffect).filter(Boolean).join('・') + '</div></div>').join('');
+    if (optEl && sig !== evtSig) {
+      evtSig = sig;
+      optEl.innerHTML = ev.options.map((o, i) =>
+        '<div class="eventOpt"><button data-event-opt="' + i + '">' + o.name + '</button>' +
+        '<div class="small muted">' + (o.effects || []).map(describeEffect).filter(Boolean).join('・') + '</div></div>').join('');
+    }
     w.speed = 0; // 事件强制暂停
   };
 
   UI.renderLog = function (g) {
     const w = g.world;
     const items = (w.log || []).slice(-40).reverse();
+    const top = items[0];
+    const sig = items.length + '|' + (top ? top.h + '#' + top.text : '');
+    if (sig === logSig) return;                 // 没有新日志就不动 DOM（避免丢掉玩家的文本选择）
+    logSig = sig;
     setHtml('log', items.map((it) =>
       '<div class="logLine ' + it.kind + '"><span class="muted">' + PSE.Time.format(it.h).slice(5, 16) + '</span> ' + it.text + '</div>').join(''));
   };
@@ -1349,23 +1378,28 @@
     const modal = $('peaceModal');
     if (!modal) return;
     const pc = w.peaceConference;
-    if (!pc || pc.main !== w.playerTag) { modal.classList.add('hidden'); return; }
+    if (!pc || pc.main !== w.playerTag) { peaceSig = ''; modal.classList.add('hidden'); return; }
     modal.classList.remove('hidden');
     const d = w.countries[pc.defeated];
     setText('peaceTitle', '和平会议：' + (d ? d.name : pc.defeated) + ' 的命运');
-    setHtml('peaceDesc', '你在这场战争中的贡献最高，拥有处置权。选择对该国的处置方式：');
-    setHtml('peaceOptions',
-      '<div class="eventOpt"><button data-peace="annex">吞并（领土与工厂全部并入）</button></div>' +
-      '<div class="eventOpt"><button data-peace="puppet">扶植傀儡政权（保留政府，征收工厂与人力）</button></div>' +
-      '<div class="eventOpt"><button data-peace="liberate">恢复独立（大幅改善关系）</button></div>');
+    // 内容签名：同一场会议不重复重建选项（每 tick 重建会吞掉正在按下的点击）——见 renderEvent 说明
+    const sig = pc.defeated + '|' + pc.main + '|' + w.playerTag;
     const opts = $('peaceOptions');
-    opts.querySelectorAll('[data-peace]').forEach((b: any) => b.onclick = () => {
-      PSE.Peace.apply(w, b.dataset.peace);
-      modal.classList.add('hidden');
-      w.speed = g.lastSpeed || 2;
-      UI.renderAll(g);
-      UI.toast('和平会议结束');
-    });
+    if (opts && sig !== peaceSig) {
+      peaceSig = sig;
+      setHtml('peaceDesc', '你在这场战争中的贡献最高，拥有处置权。选择对该国的处置方式：');
+      setHtml('peaceOptions',
+        '<div class="eventOpt"><button data-peace="annex">吞并（领土与工厂全部并入）</button></div>' +
+        '<div class="eventOpt"><button data-peace="puppet">扶植傀儡政权（保留政府，征收工厂与人力）</button></div>' +
+        '<div class="eventOpt"><button data-peace="liberate">恢复独立（大幅改善关系）</button></div>');
+      opts.querySelectorAll('[data-peace]').forEach((b: any) => b.onclick = () => {
+        PSE.Peace.apply(w, b.dataset.peace);
+        modal.classList.add('hidden');
+        w.speed = g.lastSpeed || 2;
+        UI.renderAll(g);
+        UI.toast('和平会议结束');
+      });
+    }
     w.speed = 0;
   };
 

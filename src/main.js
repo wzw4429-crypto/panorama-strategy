@@ -98,10 +98,13 @@
             const r = canvas.getBoundingClientRect();
             return [e.clientX - r.left, e.clientY - r.top];
         }
+        /** 屏幕事件 → **世界省份**（运行时对象）。
+         *  `PSE.MapData.pickProvince()` 给的是静态地图对象（只有 vp/supplyAt），
+         *  悬停提示要读 supply/cityVp/buildings → 必须经 `PSE.World.provinceAt` 解析（否则显示「补给 NaN%」）。 */
         function provAtEvent(e) {
             const [px, py] = localPos(e);
             const ll = PSE.Render.screenToLonLat(px, py);
-            return PSE.MapData.pickProvince(ll[0], ll[1]);
+            return PSE.World.provinceAt(Game.world, ll[0], ll[1]);
         }
         canvas.addEventListener('mousedown', (e) => {
             if (e.button !== 0)
@@ -131,16 +134,10 @@
                 return;
             if (p) {
                 const w = Game.world;
-                const c = w.countries[p.controller];
                 tip.classList.remove('hidden');
                 tip.style.left = (e.clientX + 14) + 'px';
                 tip.style.top = (e.clientY + 14) + 'px';
-                const divs = w.divisions.filter((d) => d.loc === p.id);
-                tip.innerHTML = '<b>' + p.name + '</b>（' + (PSE.Render.TERRAIN_NAME[p.terrain] || '') + '）<br>' +
-                    '控制：' + (c ? c.name : '无') + '｜补给 ' + Math.round(p.supply * 100) + '%' +
-                    (divs.length ? '<br>驻军 ' + divs.length + ' 个师' : '') +
-                    (p.cityVp ? '<br>胜利点 ' + p.cityVp : '') +
-                    (p.isPort ? '｜港口' : '') + (p.buildings && p.buildings.mil ? '｜军工厂 ' + p.buildings.mil : '');
+                tip.innerHTML = PSE.UI.provinceTooltipHtml(w, p, w.divisions.filter((d) => d.loc === p.id).length);
             }
             else
                 tip.classList.add('hidden');
@@ -229,7 +226,7 @@
             const t = e.changedTouches[0];
             const [px, py] = tPos(t);
             const ll = PSE.Render.screenToLonLat(px, py);
-            const p = PSE.MapData.pickProvince(ll[0], ll[1]);
+            const p = PSE.World.provinceAt(Game.world, ll[0], ll[1]); // 同鼠标路径：世界省份（不是静态地图对象）
             const now = Date.now();
             if (now - lastTap < 300 && Math.hypot(t.clientX - lastTapX, t.clientY - lastTapY) < 30) {
                 // 双击：居中并放大

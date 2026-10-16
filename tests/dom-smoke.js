@@ -168,6 +168,24 @@ step('省份详情渲染（本国/敌国/海洋坐标）', () => {
   }
 });
 
+step('悬停提示读运行时字段：不再「补给 NaN%」，且有胜利点/军工厂', () => {
+  const w = PSE.Game.world;
+  let p = null;
+  for (const q of w.provinces) {
+    if ((q.cityVp || 0) > 0 && q.buildings && q.buildings.mil > 0 && typeof q.supply === 'number') { p = q; break; }
+  }
+  if (!p) throw new Error('找不到同时有胜利点与军工厂的省份');
+  const html = PSE.UI.provinceTooltipHtml(w, p, 3);
+  if (html.indexOf('NaN') >= 0) throw new Error('悬停提示出现 NaN：' + html);
+  if (!/补给 \d+%/.test(html)) throw new Error('悬停提示缺少补给百分比：' + html);
+  if (html.indexOf('胜利点 ' + p.cityVp) < 0) throw new Error('悬停提示缺少胜利点：' + html);
+  if (html.indexOf('军工厂 ' + p.buildings.mil) < 0) throw new Error('悬停提示缺少军工厂：' + html);
+  if (html.indexOf('驻军 3 个师') < 0) throw new Error('悬停提示缺少驻军行：' + html);
+  // 静默降级：万一又有人把静态地图对象塞进来，应显示占位符而不是 NaN
+  const mp = PSE.MapData.pickProvince(p.cx, p.cy);
+  if (PSE.UI.provinceTooltipHtml(w, mp, 0).indexOf('补给 —') < 0) throw new Error('静态地图对象未按占位符降级');
+});
+
 step('推进 60 天（玩家国 + AI 全开）', () => {
   const w = PSE.Game.world;
   for (let i = 0; i < 24 * 60; i++) PSE.Sim.tickHour(w);
@@ -218,6 +236,49 @@ step('事件弹窗渲染与抉择', () => {
   if (!opts.innerHTML) throw new Error('事件选项为空');
   PSE.Events.resolve(w, 0, false);
   if (w.events.current) throw new Error('事件未清除');
+});
+
+step('事件弹窗：定时刷新不重建按钮（「点了没反应」回归）', () => {
+  const w = PSE.Game.world, g = PSE.Game;
+  const evId = Object.keys(PSE.EVENTS).find((k) => (PSE.EVENTS[k].options || []).length > 0);
+  if (!evId) throw new Error('没有可用事件');
+  const optEl = document.getElementById('eventOptions');
+  let writes = 0, html = '';
+  Object.defineProperty(optEl, 'innerHTML', {
+    get: () => html,
+    set: (v) => { writes++; html = String(v); },
+    configurable: true,
+  });
+  w.events.current = { id: evId, tag: w.playerTag };
+  PSE.UI.renderEvent(g);
+  if (html.indexOf('data-event-opt') < 0) throw new Error('事件选项未渲染');
+  const base = writes;
+  for (let i = 0; i < 8; i++) PSE.UI.renderEvent(g);      // 主循环约每 350ms 一次
+  if (writes !== base) throw new Error('同一事件重复刷新重建了 ' + (writes - base) + ' 次选项 DOM（会吞掉玩家点击）');
+  // 关掉再开（或换成另一个事件）必须重建，否则会显示上一个事件的选项
+  w.events.current = null; PSE.UI.renderEvent(g);
+  w.events.current = { id: evId, tag: w.playerTag }; PSE.UI.renderEvent(g);
+  if (writes !== base + 1) throw new Error('弹窗重新打开时未重建选项');
+  w.events.current = null; PSE.UI.renderEvent(g);
+  if (!document.getElementById('eventModal').classList.contains('hidden')) throw new Error('事件结束后弹窗未隐藏');
+  delete optEl.innerHTML;
+  // 和平会议同一套保护（直接构造会议状态，避免依赖战争流程）
+  w.peaceConference = { main: w.playerTag, defeated: 'POL' };
+  const peaceEl = document.getElementById('peaceOptions');
+  let pw = 0, pHtml = '';
+  Object.defineProperty(peaceEl, 'innerHTML', {
+    get: () => pHtml,
+    set: (v) => { pw++; pHtml = String(v); },
+    configurable: true,
+  });
+  PSE.UI.renderPeace(g);
+  if (pHtml.indexOf('data-peace') < 0) throw new Error('和平会议选项未渲染');
+  const pbase = pw;
+  for (let i = 0; i < 8; i++) PSE.UI.renderPeace(g);
+  if (pw !== pbase) throw new Error('和平会议选项被重复重建 ' + (pw - pbase) + ' 次');
+  delete peaceEl.innerHTML;
+  w.peaceConference = null;
+  PSE.UI.renderPeace(g);
 });
 
 step('存档 UI：保存 → 读取 → 继续跑', () => {

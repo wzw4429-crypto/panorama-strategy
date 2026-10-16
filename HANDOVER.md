@@ -2,7 +2,7 @@
 
 > 交接时间：2026-10-15　｜　仓库：`D:\dsh\panorama`（git，分支 `main`）
 > 远端：https://github.com/wzw4429-crypto/panorama-strategy
-> 当前健康度：两套测试全绿（**137/137 + 25/25**）；已修 P0 地图红色横带与空白帧（§4）、P1 手机横屏排版（§4）、生产面板闪白与新增产线口径（§4）；（§5）另按用户要求补上「师团点名 / 按名字组合 / 编组」「集团军自定义：数量/名称/将领/编成」「国策 / 科研等面板全屏观看使用」；并已落地**平台适配层** `src/platform.ts`（web 退回原行为，桌面壳注入 `window.PSE_HOST` 即可接管存档/文件对话框，见 §3/§6）。
+> 当前健康度：两套测试全绿（**146/146 + 27/27**）；已修 P0 地图红色横带与空白帧（§4）、P1 手机横屏排版（§4）、悬停提示「补给 NaN%」与事件弹窗点击偶发失效（§4）、生产面板闪白与新增产线口径（§4）；（§5）另按用户要求补上「师团点名 / 按名字组合 / 编组」「集团军自定义：数量/名称/将领/编成」「国策 / 科研等面板全屏观看使用」；并已落地**平台适配层** `src/platform.ts`（web 退回原行为，桌面壳注入 `window.PSE_HOST` 即可接管存档/文件对话框，见 §3/§6）。
 
 ---
 
@@ -25,7 +25,7 @@ node server.js 8787           # node 不在 PATH，见 §6 绝对路径
 # 浏览器打开 http://127.0.0.1:8787/   或直接双击 index.html
 
 # 2) 跑测试（改任何逻辑后必跑）
-node --max-old-space-size=3072 tests/headless.js 3     # 137 项：地图/世界/3年长跑/确定性/存档/战斗/扩展系统/剧本/生产口径/集团军/平台层
+node --max-old-space-size=3072 tests/headless.js 3     # 146 项：地图/世界/3年长跑/确定性/存档/战斗/扩展系统/剧本/生产口径/集团军/平台层/地图拾取
 node tests/dom-smoke.js                                # 25 项：DOM 桩渲染 + 全部面板 + 面板刷新/全屏回归 + 平台层
 
 # 3) 改 TS 后必须重新编译（浏览器加载的是 src/*.js）
@@ -176,11 +176,27 @@ K80 横屏（1067×480）下工具行按钮被换行挤压，"拖动平移·滚�
 - 竖屏 480×1067 与桌面 1680×950：正常；桌面仍显示内联提示文字（未误伤）
 - 基础：`tests/headless.js 3` 96/96、`tests/dom-smoke.js` 20/20
 
+### P1 · 悬停提示「补给 NaN%」+ 事件弹窗点击偶发失效（**已修复**）
+
+玩家反馈：鼠标滑过省份时提示显示「补给 NaN%」且看不到胜利点/军工厂；事件弹窗的选项按钮「点了没反应，要再点一次」。
+
+**根因 A（静态地图对象当世界状态用）**：`provAtEvent()` 直接返回 `PSE.MapData.pickProvince()` 的**生成期静态对象**——它只有 `vp`/`supplyAt`/`buildings{mil:0}`，没有 `supply`、`cityVp`，且静态地图上所有省份 `buildings.mil` 都是 0（军工厂是运行时分配的）→ `Math.round(undefined*100)` = **NaN**，胜利点/军工厂两行的条件恒假。`PSE.MapData.provinces` 静态对象字段：`id,x,y,cx,cy,poly,code,owner,controller,terrain,name,vp,isPort,…,supplyAt,buildings,_bb`（**无 supply / cityVp**）。
+
+**修复 A**：新增 `PSE.World.provinceAt(w, lon, lat)`（`src/world.ts`）＝ pickProvince + 按 `id` 解析成 `w.provinces[id]`（不变量：省份 id = `w.provinces` 下标），世界未建立时退回静态对象；`src/main.ts` 的鼠标悬停/点选/右键/双击与触屏点选全部改走它；tooltip 生成抽成纯函数 `PSE.UI.provinceTooltipHtml(w, p, divCount)`（`src/ui.ts`），补给取不到时显示 `—` 而不是 NaN。
+
+**根因 B（每 350ms 整块重建含按钮的 DOM）**：`UI.renderEvent` 每次 UI tick 都 `optEl.innerHTML = …`，把玩家正按下的按钮销毁重建；mousedown 与 mouseup 跨过一次重建时浏览器不派发 `click`。CDP 实测：弹窗显示时 `#eventOptions` 2.5s 内 childList 变动 **7 次**（≈350ms 一次），同一按钮中心连点 6 次 **5 次生效、1 次卡住**。`UI.renderPeace`（和平会议选项）同一毛病。
+
+**修复 B**：事件/会议的**内容签名**（`evtSig = tag|id|选项数`、`peaceSig = defeated|main|playerTag`）——签名不变就不重建，弹窗关闭/换事件时复位；`renderLog` 同样加签名（无新日志不动 DOM）。同类"每 tick 重建可点元素"的地方已全查：面板区（上次已修 `tickPanel`）、事件弹窗、和平会议、日志；`renderTop` 只写文本/`<span>`，`showGameOver` 只显示一次，无风险。
+
+**验证**：
+- `tests/headless.js` §12（7 项）：静态对象无 `supply`/`cityVp`、`provinceAt` 返回 `w.provinces[id]` 同一对象、深海返回 null、世界未建立时退回静态对象；`tests/dom-smoke.js` +2 步：tooltip 纯函数（无 NaN、有补给百分比/胜利点/军工厂/驻军）、事件与和平弹窗 8 次刷新 0 重建且关闭重开必重建。
+- 真 Chrome（CDP，`?auto=GER&speed=0&days=30&zoom=1`）：悬停柏林 → `柏林（森林）控制：德国｜补给 100% 驻军 2 个师 胜利点 50｜港口｜军工厂 1`（截图 `tests/bugfix_tooltip.png`）；`#eventOptions` 2.6s 重建 **0 次**（旧版 7 次）；CDP `Input.dispatchMouseEvent` 真实物理连点 **10/10 生效**；0 console 异常。
+
 ### P2 · 杂项
 - ~~`package.json` 的 `description` 是乱码~~ → **已复查：文件本身没有问题**（`description` 解码后是「全景式历史战略模拟引擎（1936-1950）—— Web/Android 原型」，码点正确、无 U+FFFD；43 个文本文件全量扫描均合法 UTF-8）。见下一条。
 - PowerShell 读取 UTF-8 文件（含 `.gitignore`、workflow）会显示乱码——**只是显示问题**，文件本身正常，不要"顺手重写"
 - `tests/` 取证工具：**保留并入库** `rowprofile.py`（行剖面）＋`bandlat.py`（横带定位，画布顶探测的"面板色误判"已收紧判据）；一次性脚本（`probe9/10/12-15.js`、`forensics.py`、`pngsample.py`）与 `apk_check/`、Chrome 临时 profile、`__pycache__` 已清理；`.gitignore` 新增 `tests/.chrome-*/` 与 `__pycache__/`
-- ~~README 的功能对照表随 UI 演进可能略有出入~~ → **本轮已核对更新**（操作表加面板全屏、工业表加"新增产线"、指挥表重写"集团军"、陆军表加"师团点名与编组"、工程结构加 `platform.ts`、测试数字改 132/25、新增"平台适配层"小节）
+- ~~README 的功能对照表随 UI 演进可能略有出入~~ → **上一轮已核对更新**（操作表加面板全屏、工业表加"新增产线"、指挥表重写"集团军"、陆军表加"师团点名与编组"、工程结构加 `platform.ts`、新增"平台适配层"小节）；测试数字随基线同步（现 146/27）
 
 ---
 
@@ -189,7 +205,7 @@ K80 横屏（1067×480）下工具行按钮被换行挤压，"拖动平移·滚�
 | 要求 | 出处 | 状态 |
 |---|---|---|
 | 修到"没有任何一点 bug"再推送 | m01338 | P0/P1 + 本轮三件事已修并本地提交（`d51d3cc` + `0cee85a` + `851312d` + `8dcd51d` + 本次），待用户确认后推送 |
-| 每次修完自己跑测试并全面复查代码 | m01338 | 持续执行中（现 137/137 + 25/25） |
+| 每次修完自己跑测试并全面复查代码 | m01338 | 持续执行中（现 146/146 + 27/27） |
 | 交接文档 | m01471 | **本文档** |
 | 自主推进、不要频繁确认 | 会话早期多轮 | 持续遵守 |
 | 把聚在一地的师拆开、给每个师起名字、按名字组合 | 用户（本轮） | **已实现**：师团名带兵种（如 德国·第3装甲师）；「陆军」面板逐个师点选（拆堆叠）、按名字组合选中、「存为编组」一键召回（随存档持久化） |
@@ -240,7 +256,7 @@ git fetch origin          # 同步 tracking ref（否则 status 会显示 ahead�
 ## 8. 交接后建议的第一步
 
 1. `node server.js 8787` + 浏览器打开，确认可玩（当前服务在本机 8787 已起）
-2. 跑两套测试，确认基线仍为 **137/137 + 25/25**（含 §4 P0/P1 的 4 项回归、生产口径与面板刷新/全屏回归、集团军与平台层回归）
+2. 跑两套测试，确认基线仍为 **146/146 + 27/27**（含 §4 P0/P1 的 4 项回归、悬停提示与弹窗点击回归、生产口径与面板刷新/全屏回归、集团军与平台层回归）
 3. 若再动地图算法：改 `tools/build-map.js` → `node tools/build-map.js` 重生成 `data/map-generated.js`（约 1 分钟）→ 两套测试；**任何跨 ±180° 的环都必须先 `splitAntimeridian` 再参与平面运算**
 4. 若再动渲染时序：`node <npx 缓存里的 tsc.js> -p tsconfig.json` 编译 → 两套测试 → 多次 `zoom=2` 截图（456KB≈正常，105KB≈空白帧）→ 提交
 5. 提交后推送（触发 APK 重建）→ 在 Actions 下载新 APK 实机验证；推送 token 由用户提供
