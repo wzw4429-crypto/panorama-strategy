@@ -95,6 +95,9 @@ const (
 
 	monitorDefaultToNearest = 2
 	idcArrow                = 32512
+	wmSetIcon               = 0x0080
+	iconSmall               = 0
+	iconBig                 = 1
 
 	pwRenderFullContent = 2 // PrintWindow 标志：抓取 DirectComposition(D3D) 内容
 	srccopy             = 0x00CC0020
@@ -102,6 +105,9 @@ const (
 
 	minWinW = 960
 	minWinH = 600
+
+	// appIconResName 是内嵌图标组名（desktop\winres\winres.json 的 RT_GROUP_ICON 键）
+	appIconResName = "APP"
 
 	keyeventfKeyUp = 0x0002
 )
@@ -115,6 +121,8 @@ var (
 
 	pRegisterClassExW         = user32.NewProc("RegisterClassExW")
 	pLoadCursorW              = user32.NewProc("LoadCursorW")
+	pLoadIconW                = user32.NewProc("LoadIconW")
+	pSendMessageW             = user32.NewProc("SendMessageW")
 	pCreateWindowExW          = user32.NewProc("CreateWindowExW")
 	pDefWindowProcW           = user32.NewProc("DefWindowProcW")
 	pDestroyWindow            = user32.NewProc("DestroyWindow")
@@ -279,6 +287,24 @@ var theApp *app
 
 // ---------------------------------------------------------------- main
 
+// loadAppIcon 从可执行文件内嵌资源里取应用图标。
+// 资源由 winres\winres.json + app.ico 经 go-winres 生成到 rsrc_windows_amd64.syso，
+// 图标组名为 "APP"（见 desktop\README.md 的「应用图标」一节）。
+func loadAppIcon(inst windows.Handle) windows.Handle {
+	name, _ := windows.UTF16PtrFromString(appIconResName)
+	if h, _, _ := pLoadIconW.Call(uintptr(inst), uintptr(unsafe.Pointer(name))); h != 0 {
+		logf("app-icon: 已从内嵌资源加载 RT_GROUP_ICON %q (hIcon=0x%x)", appIconResName, h)
+		return windows.Handle(h)
+	}
+	// 回退：按序号 1 取（MAKEINTRESOURCE(1)，不同打包工具的命名差异）
+	if h, _, _ := pLoadIconW.Call(uintptr(inst), 1); h != 0 {
+		logf("app-icon: 按序号 1 加载 RT_GROUP_ICON (hIcon=0x%x)", h)
+		return windows.Handle(h)
+	}
+	logf("app-icon: 未找到内嵌图标，使用系统默认图标")
+	return 0
+}
+
 func main() {
 	var (
 		root        = flag.String("pse-root", "", "覆盖 web 资源根目录（含 index.html）")
@@ -368,15 +394,20 @@ var procStart = time.Now()
 func run(opt options) {
 	runtime.LockOSThread() // 全部窗口 / WebView2 调用都必须在同一个 OS 线程上
 
-	// PerMonitorV2：必须在创建任何窗口之前设置。
+	// PerMonitorV2：必须在创建任何窗口之前生效。
+	// 现在同时由应用清单（winres\winres.json → RT_MANIFEST 的 dpiAwareness=permonitorv2,system）
+	// 和这里的 API 声明；清单先生效时本调用会返回 0（ERROR_ACCESS_DENIED），属正常。
+	dpiCall := false
 	if r, _, err := pSetDpiAwareness.Call(dpiAwarenessPerMonitorV2); r == 0 {
-		logf("SetProcessDpiAwarenessContext(PerMonitorV2) 失败（忽略）: %v", err)
+		logf("SetProcessDpiAwarenessContext(PerMonitorV2) 返回 0（清单已声明 DPI 感知时正常）: %v", err)
 	} else {
-		// 回读验证：确认当前线程确实处于 PerMonitorV2 感知模式
-		cur, _, _ := pGetThreadDpiCtx.Call()
-		eq, _, _ := pDpiCtxEqual.Call(cur, dpiAwarenessPerMonitorV2)
-		logf("dpi-context: PerMonitorV2 = %v (AreDpiAwarenessContextsEqual=%d)", eq != 0, eq)
+		dpiCall = true
 	}
+	// 无论由清单还是由本次调用生效，都回读确认当前线程确实是 PerMonitorV2
+	cur, _, _ := pGetThreadDpiCtx.Call()
+	eq, _, _ := pDpiCtxEqual.Call(cur, dpiAwarenessPerMonitorV2)
+	logf("dpi-context: PerMonitorV2 = %v (AreDpiAwarenessContextsEqual=%d, SetProcessDpiAwarenessContext=%v)",
+		eq != 0, eq, dpiCall)
 
 	theApp = &app{opt: opt, startAt: time.Now(), uiReady: make(chan struct{})}
 	a := theApp
@@ -400,12 +431,16 @@ func run(opt options) {
 	// HCursor 必须是 LoadCursorW 返回的真实句柄：直接填 IDC_ARROW 的数值(32512)
 	// 会被 RegisterClassExW 判为 ERROR_INVALID_PARAMETER。
 	arrow, _, _ := pLoadCursorW.Call(0, uintptr(idcArrow))
+	// 应用图标来自内嵌资源（rsrc_windows_amd64.syso），窗口类 + WM_SETICON 都用它
+	appIcon := loadAppIcon(inst)
 	wc := wndClassExW{
 		CbSize:        uint32(unsafe.Sizeof(wndClassExW{})),
 		HInstance:     inst,
 		LpszClassName: className,
 		LpfnWndProc:   windows.NewCallback(wndProc),
 		HCursor:       windows.Handle(arrow),
+		HIcon:         appIcon,
+		HIconSm:       appIcon,
 	}
 	if r, _, err := pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc))); r == 0 {
 		fatal("RegisterClassExW 失败", err)
@@ -424,6 +459,12 @@ func run(opt options) {
 		fatal("CreateWindowExW 失败", err)
 	}
 	a.hwnd = windows.Handle(hwnd)
+
+	// 标题栏 / 任务栏 / Alt-Tab 都使用内嵌应用图标
+	if appIcon != 0 {
+		pSendMessageW.Call(hwnd, uintptr(wmSetIcon), uintptr(iconBig), uintptr(appIcon))
+		pSendMessageW.Call(hwnd, uintptr(wmSetIcon), uintptr(iconSmall), uintptr(appIcon))
+	}
 
 	if st.Maximized {
 		pShowWindow.Call(hwnd, uintptr(swMaximize))

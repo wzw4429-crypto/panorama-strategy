@@ -65,7 +65,7 @@ panorama/
 │   └── map-generated.js     生成产物：1293 省多边形 + 230 跨海通道 + 26 海区（670 KB）
 ├── tools/build-map.js    地图生成器（改地图算法后重跑，约 1 分钟）
 ├── android/              Android WebView 壳（Gradle 工程）
-├── desktop/              ★ Windows 桌面壳（Go + WebView2）：main.go / build.ps1 / verify.ps1 / README.md，见 §7
+├── desktop/              ★ Windows 桌面壳（Go + WebView2）：main.go / build.ps1 / verify.ps1 / make-icon.ps1 / app.ico / winres/ / rsrc_windows_amd64.syso / README.md，见 §7
 ├── .github/workflows/build-apk.yml   CI：tsc → 签名 → 打包 APK
 └── tests/                headless.js / dom-smoke.js / probe*.js / *.py 取证脚本
 ```
@@ -260,26 +260,27 @@ git fetch origin          # 同步 tracking ref（否则 status 会显示 ahead�
 
 ## 7. Windows 桌面版（Go + WebView2 壳，已完成）
 
-产物：`desktop\dist\PSE-Panorama\`（exe 3.51 MB + `www\` 16 文件 1.26 MB，另可出 1.80 MB 的 zip）。全程**只动 `desktop/`**，不碰 `src/`、`index.html`、`data/`、`tests/`、`tools/`。
+产物：`desktop\dist\PSE-Panorama\`（exe 3.56 MB / 3 732 992 字节 + `www\` 16 文件 1.26 MB，另可出 1.83 MB 的 zip）。全程**只动 `desktop/`**，不碰 `src/`、`index.html`、`data/`、`tests/`、`tools/`。
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Zip      # 出包
 powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -SelfTest # 出包 + 冒烟自检
-powershell -ExecutionPolicy Bypass -File desktop\verify.ps1 -FreshUserData  # 8 组 23 项验收
+powershell -ExecutionPolicy Bypass -File desktop\verify.ps1 -FreshUserData  # 9 组 27 项验收
 ```
 
-四条硬性设计（理由都是实测踩出来的）：
+五条硬性设计（理由都是实测踩出来的）：
 
 1. **不用 `file://`，用 `SetVirtualHostNameToFolderMapping` 映射成 `https://panorama.local/`** —— file:// 下 WebView2 的 localStorage 不可靠会丢存档；虚拟主机是正常 https 源，零端口零防火墙弹窗。
 2. **`UserDataFolder=%LOCALAPPDATA%\PSE-Panorama`**，存档（`EBWebView\Default\Local Storage`）与窗口记忆（`window-state.json`）都在这里，删目录即清档。
 3. **只拦 F11**（`AcceleratorKeyCallback` 里 `vk==0x7B`）：`F`/`Shift+F`/`Esc`/数字键/`L`/`S` 全部透传，并 `AreDefaultContextMenusEnabled=false` 让右键归游戏用。
 4. **PerMonitorV2 DPI + 窗口位置尺寸记忆（含跨屏 clamp）+ 单实例**（`Local\PSE-Panorama-Shell` 互斥体，第二次双击切前台）。
+5. **应用图标与游戏同源**：`desktop\make-icon.ps1` 用 GDI+ 按 Android 版 `splash_logo.xml` 的 108×108 设计图画出 `app.ico`（深蓝底 + 金色地球 + 指北星，16/24/32/48/64 为 DIB 条目、128/256 为 PNG 条目），`go-winres` 按 `winres\winres.json` 把它和应用清单（`permonitorv2,system`）、版本信息一起编成 `rsrc_windows_amd64.syso`（入库，离线可构建）；窗口类 `HIcon/HIconSm` + `WM_SETICON` 用同一份内嵌资源，exe 文件图标 / 标题栏 / 任务栏 / Alt-Tab 四处一致。
 
 宿主桥 `window.PSE_HOST`（`kind:'webview2'`）必须在**导航之前**注入（`AddScriptToExecuteOnDocumentCreated` 对当前文档无效，顺序反了就是白屏）；kv 基于 localStorage，契约与 `src/platform.ts` 逐项对齐（`store()` 的接口是 `getItem/setItem/removeItem/key/length`）。
 
-**验收实测（`desktop\verify.ps1`，23/23 通过）**：宿主桥注入 ✓；`origin=https://panorama.local` ✓；`?auto=GER&speed=3` 自动开局、`canvasMean=50`（0＝全黑）✓；启动 进程start→nav-completed **2744 ms**（热启动 2600/2612/2623 ms）✓；**进程 A 写存档 `hash=2968368646` → 全新进程 B 读回同一 hash** ✓；窗口 `300,150 1280x860` 记忆跨重启 ✓；全屏 `0,0 1920x1080`（无标题栏）开/关 ✓；第二实例 31 ms 退出、进程数仍为 1 ✓；运行时回读 `右键菜单=false 开发者工具=false`、`AreDpiAwarenessContextsEqual=1` ✓。截图与《验收报告.md》在 `desktop\dist\_evidence\`（dist 已 gitignore）。同期 web 两套测试仍 **146/146 + 27/27**，未受桌面壳影响。
+**验收实测（`desktop\verify.ps1`，27/27 通过）**：宿主桥注入 ✓；`origin=https://panorama.local` ✓；`?auto=GER&speed=3` 自动开局、`canvasMean=50`（0＝全黑）✓；启动 进程start→nav-completed **2644 ms / 2692 ms**（两次独立全量验收；热启动采样 2586~2705 ms）✓；**进程 A 写存档 `hash=2968368646` → 全新进程 B 读回同一 hash** ✓；窗口 `300,150 1280x860` 记忆跨重启 ✓；全屏 `0,0 1920x1080`（无标题栏）开/关 ✓；第二实例 35 ms 退出、进程数仍为 1 ✓；运行时回读 `右键菜单=false 开发者工具=false`、`AreDpiAwarenessContextsEqual=1` ✓；**exe 内嵌图标 32×32 像素签名与 `desktop\app.ico` 完全一致**、`app-icon: 已从内嵌资源加载 RT_GROUP_ICON "APP"`、版本信息 `PSE 全景战略引擎 / 0.3.0.0` ✓。截图与《验收报告.md》（含 exe SHA256）在 `desktop\dist\_evidence\`（dist 已 gitignore）。同期 web 两套测试 **157/157 + 28/28**，未受桌面壳影响。
 
-**该路线踩过的坑（改壳时注意）**：① 库 `github.com/jchv/go-webview2` 的 `Resize()` 在 controller 未就绪时直接 return，初始 `WM_SIZE` 会丢 → WebView2 永远 0×0、窗口一片白，`Embed()` 成功后必须显式再 `Resize()` 一次；② 该库用 `int64(res) < 0` 判 HRESULT 失败，amd64 上零扩展恒为正 → 失败漏判后空指针崩，别依赖它的错误判断；③ `ICoreWebView2Controller` 的 `Close` 库里只声明字段没实现，得自己按 vtable 槽位 24 调用（先 `PutIsVisible(false)`），否则退出时 localStorage 落盘不干净（实测会冒一行 `can't open file for write !`）；④ `RegisterClassExW` 的 `HCursor` 必须传 `LoadCursorW` 得到的真实句柄，直接写 32512 会 `ERROR_INVALID_PARAMETER`；⑤ 所有 WebView2 COM 调用必须在同一 UI 线程（`runtime.LockOSThread`），在协程里调用会崩。
+**该路线踩过的坑（改壳时注意）**：① 库 `github.com/jchv/go-webview2` 的 `Resize()` 在 controller 未就绪时直接 return，初始 `WM_SIZE` 会丢 → WebView2 永远 0×0、窗口一片白，`Embed()` 成功后必须显式再 `Resize()` 一次；② 该库用 `int64(res) < 0` 判 HRESULT 失败，amd64 上零扩展恒为正 → 失败漏判后空指针崩，别依赖它的错误判断；③ `ICoreWebView2Controller` 的 `Close` 库里只声明字段没实现，得自己按 vtable 槽位 24 调用（先 `PutIsVisible(false)`），否则退出时 localStorage 落盘不干净（实测会冒一行 `can't open file for write !`）；④ `RegisterClassExW` 的 `HCursor` 必须传 `LoadCursorW` 得到的真实句柄，直接写 32512 会 `ERROR_INVALID_PARAMETER`；⑤ 所有 WebView2 COM 调用必须在同一 UI 线程（`runtime.LockOSThread`），在协程里调用会崩；⑥ `winres.json` 的 `RT_GROUP_ICON` 值必须是**字符串**路径（写成数组会被当成 PNG 列表解码，报 `image: unknown format`），`dpi-awareness` 只认 `unaware`/`per monitor`/`per monitor v2`；⑦ 应用清单声明了 DPI 感知后 `SetProcessDpiAwarenessContext` 会返回 `Access is denied`（正常），自证要看 `AreDpiAwarenessContextsEqual`。
 **已知限制**：自动化会话拿不到交互式前台，WebView2 也不处理 `PostMessage` 造的伪输入 → 键鼠注入无法端到端复现；F11 的端到端验证走 `--pse-fullscreen`（与 F11 回调同一个 `toggleFullscreen()`），"不抢按键"由拦截矩阵 + 设置回读保证。
 
 ---

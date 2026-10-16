@@ -7,8 +7,12 @@
 desktop\
   main.go           桌面壳全部源码（Win32 窗口 + WebView2 + 测试钩子）
   go.mod / go.sum   Go 模块（唯一第三方依赖 github.com/jchv/go-webview2）
+  winres\winres.json 图标 / 应用清单(PerMonitorV2) / 版本信息 的 go-winres 配置
+  app.ico           应用图标（7 个尺寸，由 make-icon.ps1 生成，与 Android 版同源）
+  make-icon.ps1     重新生成 app.ico（GDI+ 画金色地球 + 指北星）
+  rsrc_windows_amd64.syso  内嵌资源（go-winres 产物，入库＝离线可构建）
   build.ps1         一键构建 / 出包（含可选自检）
-  verify.ps1        端到端验收：8 组 23 项，产出报告 + 截图
+  verify.ps1        端到端验收：9 组 27 项，产出报告 + 截图
   dist\             构建产物（已 gitignore，不入库）
 ```
 
@@ -24,7 +28,7 @@ powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Zip
 # 构建 + 冒烟自检（启动→自动开局→探针→存档→新进程读档比对哈希）
 powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -SelfTest
 
-# 跑完整验收（23 项，产出桌面截图与《验收报告.md》）
+# 跑完整验收（9 组 27 项，产出桌面截图与《验收报告.md》）
 powershell -ExecutionPolicy Bypass -File desktop\verify.ps1 -FreshUserData
 ```
 
@@ -38,13 +42,13 @@ desktop\dist\PSE-Panorama\PSE-Panorama.exe
 
 | 路径 | 说明 |
 |---|---|
-| `desktop\dist\PSE-Panorama\PSE-Panorama.exe` | 单文件 exe，**3.51 MB**（Go 静态链接，不需要 .NET / 不需要装 Go） |
+| `desktop\dist\PSE-Panorama\PSE-Panorama.exe` | 单文件 exe，**3.56 MB**（3 732 992 字节；Go 静态链接，不需要 .NET / 不需要装 Go） |
 | `desktop\dist\PSE-Panorama\www\` | web 游戏产物 16 个文件 **1.26 MB**（`index.html` + `src\*.js` + `data\`） |
 | `desktop\dist\PSE-Panorama\README-分发.txt` | 给最终用户看的说明（存档位置、快捷键、右键） |
-| `desktop\dist\PSE-Panorama-win-x64.zip` | 上面三者打成一个 zip，**1.80 MB**（1 886 788 字节） |
-| `desktop\dist\_evidence\` | 验收截图与报告（`01-启动画面.png` / `03-全屏.png` / `验收报告.md`） |
+| `desktop\dist\PSE-Panorama-win-x64.zip` | 上面三者打成一个 zip，**1.83 MB**（1 915 587 字节） |
+| `desktop\dist\_evidence\` | 验收截图与报告（`01-启动画面.png` / `02-记忆恢复.png` / `03-全屏.png` / `04-应用图标-32.png` / `验收报告.md`） |
 
-**分发形态＝ exe + www 目录一起给**（解压即用，共 4.76 MB）。不做单文件内嵌：网页资源留在外面，改游戏内容只要替换 `www\`，不用重新编译 exe。
+**分发形态＝ exe + www 目录一起给**（解压即用，共 4.83 MB）。不做单文件内嵌：网页资源留在外面，改游戏内容只要替换 `www\`，不用重新编译 exe。
 
 运行要求：Windows 10 1809 x64 及以上 + **Microsoft Edge WebView2 Runtime**（Win11 自带，Win10 一般随 Edge 装好）。缺失时 `build.ps1` 会告警，用户到微软官网装 Evergreen 版即可。
 
@@ -60,7 +64,9 @@ desktop\dist\PSE-Panorama\PSE-Panorama.exe
    `AcceleratorKeyCallback` 里只有 **F11**（`0x7B`）返回"已处理"，其余一律透传：`F`（地图全屏）、`Shift+F`（面板全屏）、`Esc`（退面板全屏）、数字键、`L`/`S` 等游戏快捷键原样进游戏。
    同时 `AreDefaultContextMenusEnabled=false` 禁掉 WebView2 默认右键菜单，右键才能被游戏用作下达命令。
 4. **不是第二个浏览器窗口**
-   `PerMonitorV2` DPI 感知（`SetProcessDpiAwarenessContext(-4)`，多屏/缩放切换时按 `WM_DPICHANGED` 建议矩形重排）、窗口位置尺寸记忆（`window-state.json`，跨屏越界会 clamp 回可见区）、单实例（`Local\PSE-Panorama-Shell` 互斥体，第二次双击把已有窗口切前台）、自绘 Win32 窗口类不用库默认消息循环（`WM_SIZE`→`Resize()`、`WM_DESTROY`→优雅关闭）。
+   `PerMonitorV2` DPI 感知（应用清单声明 `permonitorv2,system`，运行时再调一次 `SetProcessDpiAwarenessContext(-4)` 兜底并回读 `AreDpiAwarenessContextsEqual` 自证；多屏/缩放切换时按 `WM_DPICHANGED` 建议矩形重排）、窗口位置尺寸记忆（`window-state.json`，跨屏越界会 clamp 回可见区）、单实例（`Local\PSE-Panorama-Shell` 互斥体，第二次双击把已有窗口切前台）、自绘 Win32 窗口类不用库默认消息循环（`WM_SIZE`→`Resize()`、`WM_DESTROY`→优雅关闭）。
+5. **应用图标与游戏同源**
+   `app.ico` 由 `make-icon.ps1` 用 GDI+ 画出来（深蓝底 + 金色地球 + 指北星），坐标直接取 Android 版 `android/app/src/main/res/drawable/splash_logo.xml` 的 108×108 设计图；`go-winres` 把它连同 PerMonitorV2 清单、版本信息一起编进 `rsrc_windows_amd64.syso`，窗口类 `HIcon/HIconSm` + `WM_SETICON` 用的是**同一份**内嵌资源，所以 exe 文件图标、标题栏、任务栏、Alt-Tab 四处一致。
 
 ## 4. 宿主桥 `window.PSE_HOST`（与 web 侧的唯一契约）
 
@@ -102,30 +108,44 @@ web 侧 `src/platform.ts` 只看"有没有 `window.PSE_HOST`"判定桌面（`PSE
 
 诊断日志：`%LOCALAPPDATA%\PSE-Panorama\shell.log`（同时输出到 stderr）。里面 `process-start epoch=` 与 `nav-completed ... epoch=` 是跨进程算启动耗时的依据。
 
-## 6. 验收（8 组 23 项，全部通过）
+## 6. 验收（9 组 27 项，全部通过）
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File desktop\verify.ps1 -FreshUserData
-# → 结论：23 项通过，0 项失败   （有失败项会 exit 1）
+# → 结论：27 项通过，0 项失败   （有失败项会 exit 1）
 ```
 
 | 组 | 检查点 | 实测证据 |
 |---|---|---|
 | 1 | 宿主桥注入 / 虚拟主机（非 file://）/ 世界已开局 / canvas 真的画了 / 启动截图 | `origin=https://panorama.local`、`canvasMean=50`（0＝全黑）、`01-启动画面.png` |
-| 2 | 启动耗时（热配置 3 次采样） | 冷启动 **2744 / 2820 ms**；热启动典型 **2600 / 2612 / 2623 ms**（两次实测），冷页缓存时首轮可到 5022 ms |
+| 2 | 启动耗时（热配置 3 次采样） | 冷启动 **2644 / 2692 ms**（两次独立全量验收）；热启动采样 **2586~2705 ms**，冷页缓存时首轮可到 5022 ms |
 | 3 | 存档：**进程 A 写 → 全新进程 B 读** | A 写 `hash=2968368646` → B 读回同 hash，slot 出现在 `PSE.Save.list()`，落盘位置 `%LOCALAPPDATA%\PSE-Panorama\EBWebView\Default\Local Storage` |
 | 4 | 窗口尺寸位置记忆 | `after-move: 300,150 1280x860` → `window-state.json {"X":300,"Y":150,"W":1280,"H":860}` → 重启 `window-state loaded = 300,150 1280x860` |
 | 5 | 全屏开/关 | `fullscreen-on: 0,0 1920x1080`（`caption=false thickframe=false`）→ `fullscreen-off: 300,150 1280x860`，`03-全屏.png` |
 | 6 | 按键拦截矩阵 | 10 个键里**只有 F11 拦截＝true**，F/Esc/Shift/Ctrl/Space/L/S/1/F5 全部透传 |
-| 7 | 单实例 | 第二实例 **31 ms** 内退出并打印"已有实例在运行"，进程数保持 1，第一实例不受影响 |
+| 7 | 单实例 | 第二实例 **29~35 ms** 内退出并打印"已有实例在运行"，进程数保持 1，第一实例不受影响 |
 | 8 | 运行时回读设置与 DPI | `右键菜单=false 开发者工具=false 状态栏=false`、`AreDpiAwarenessContextsEqual=1`（PerMonitorV2） |
+| 9 | 应用图标与版本信息 | `ExtractAssociatedIcon` 取到的 32×32 像素签名与 `desktop\app.ico` **完全一致**；`app-icon: 已从内嵌资源加载 RT_GROUP_ICON "APP"`；`PSE 全景战略引擎 / PSE 全景战略引擎 桌面版 / 0.3.0.0` |
 
 不破坏 web（在仓库根跑，需已装 node）：
 
 ```powershell
-node --max-old-space-size=3072 tests\headless.js 3   # 全部通过（检查 146 项）
-node tests\dom-smoke.js                              # 冒烟测试全部通过（检查 27 项）
+node --max-old-space-size=3072 tests\headless.js 3   # 全部通过（检查 157 项）
+node tests\dom-smoke.js                              # 冒烟测试全部通过（检查 28 项）
 ```
+
+## 6.1 应用图标怎么重做
+
+```powershell
+# 1) 重新生成 app.ico（可选 -PngPreview 出一张 256 的 PNG 看效果）
+powershell -ExecutionPolicy Bypass -File desktop\make-icon.ps1 -PngPreview icon-256.png
+
+# 2) 重新生成内嵌资源 rsrc_windows_amd64.syso
+cd desktop
+go run github.com/tc-hib/go-winres@latest make --in winres/winres.json --out rsrc
+```
+
+`winres\winres.json` 里 `RT_GROUP_ICON.APP` 必须写成**字符串**路径（写数组会被当成 PNG 列表去解码而报 `unknown format`）；`dpi-awareness` 只认 `""`/`unaware`/`per monitor`/`per monitor v2`。`app.ico` 里 16/24/32/48/64 是标准 DIB 条目（老 Shell/GDI+/`.NET` 都能读），128/256 是 PNG 条目（体积小，Vista+ Shell 支持）。
 
 ## 7. 排障
 

@@ -13,6 +13,7 @@
     6. 全屏：与 F11 同一函数，全屏矩形 = 显示器矩形，退出后恢复原窗口
     7. 单实例：第二实例秒退、不产生第二个进程
     8. 设置回读：默认右键菜单关闭、DevTools 关闭、DPI = PerMonitorV2
+    9. 应用图标：exe 内嵌 RT_GROUP_ICON 与 desktop\app.ico 像素一致、版本信息、运行时加载日志
 
   用法：
     powershell -ExecutionPolicy Bypass -File desktop\verify.ps1
@@ -233,17 +234,60 @@ Check '默认右键菜单已禁用' ([bool](($firstRunLog -match '右键菜单=f
 Check 'DevTools 已禁用' ([bool](($firstRunLog -match '开发者工具=false') -or ($rootLog -match '开发者工具=false'))) 'settings: 开发者工具=false'
 Check 'PerMonitorV2 DPI 感知' ([bool]($firstRunLog -match 'PerMonitorV2 = true')) 'AreDpiAwarenessContextsEqual=1（SetProcessDpiAwarenessContext 后立即回读）'
 
+# ---------------------------------------------------------------- 9) 应用图标
+Say ""
+Say "== 9) 应用图标与版本信息 ==" 'Cyan'
+
+# 位图逐像素签名：GetPixel 逐点取值后哈希，用于比较 exe 内嵌图标与 app.ico
+function Get-IconSignature([System.Drawing.Bitmap]$bmp) {
+  $sb = New-Object System.Text.StringBuilder
+  for ($y = 0; $y -lt $bmp.Height; $y++) {
+    for ($x = 0; $x -lt $bmp.Width; $x++) { [void]$sb.Append($bmp.GetPixel($x, $y).ToArgb().ToString('X8')) }
+  }
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  return ([BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::ASCII.GetBytes($sb.ToString()))) -replace '-', '')
+}
+
+Add-Type -AssemblyName System.Drawing
+$sigExe = ''
+$sigIco = ''
+$iconErr = ''
+try {
+  $bmExe = [System.Drawing.Icon]::ExtractAssociatedIcon($script:exe).ToBitmap()
+  $sigExe = Get-IconSignature $bmExe
+  $icoPath = Join-Path $scriptDir 'app.ico'
+  if (Test-Path -LiteralPath $icoPath) {
+    $bmIco = (New-Object System.Drawing.Icon($icoPath, 32, 32)).ToBitmap()
+    $sigIco = Get-IconSignature $bmIco
+    $bmIco.Save((Join-Path $EvidenceDir '04-应用图标-32.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+  }
+} catch { $iconErr = $_.Exception.Message }
+
+$vi = (Get-Item -LiteralPath $script:exe).VersionInfo
+$iconSizeTxt = '（提取失败）'
+if ($null -ne $bmExe) { $iconSizeTxt = ("{0}x{1} 像素" -f $bmExe.Width, $bmExe.Height) }
+Check 'exe 内嵌应用图标可提取' ($sigExe -ne '') ("ExtractAssociatedIcon → $iconSizeTxt，像素签名 " + $sigExe.Substring(0, 16) + '…')
+Check '内嵌图标与 desktop\app.ico 一致' (($sigIco -ne '') -and ($sigExe -eq $sigIco)) $(if ($sigIco -eq '') { "未找到 app.ico：$iconErr" } else { "两侧 32x32 像素签名 $sigIco" })
+Check '窗口运行时加载了内嵌图标' ([bool](($firstRunLog -match 'app-icon: 已从内嵌资源加载') -or ($rootLog -match 'app-icon: 已从内嵌资源加载'))) '日志：app-icon: 已从内嵌资源加载 RT_GROUP_ICON "APP"'
+Check '版本信息已写入 exe' ([bool]($vi.ProductName -match 'PSE')) ("{0} / {1} / {2}" -f $vi.ProductName, $vi.FileDescription, $vi.FileVersion)
+
 # ---------------------------------------------------------------- 汇总
 Say ""
 Say ("结论：{0} 项通过，{1} 项失败" -f $script:pass, $script:fail) $(if ($script:fail -eq 0) { 'Green' } else { 'Red' })
 
 $reportPath = Join-Path $EvidenceDir '验收报告.md'
+$exeItem = Get-Item -LiteralPath $script:exe
+$exeSha = (Get-FileHash -LiteralPath $script:exe -Algorithm SHA256).Hash
+$wwwFiles = @(Get-ChildItem -LiteralPath $www -Recurse -File -ErrorAction SilentlyContinue)
+$wwwBytes = ($wwwFiles | Measure-Object -Property Length -Sum).Sum
 $header = @(
   '# PSE 桌面壳验收报告',
   '',
   ("- 时间：" + (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')),
   ("- exe：``" + $script:exe + "``"),
-  ("- 大小：" + [math]::Round((Get-Item -LiteralPath $script:exe).Length / 1MB, 2) + " MB"),
+  ("- 大小：" + $exeItem.Length + " 字节（" + [math]::Round($exeItem.Length / 1MB, 2) + " MB）"),
+  ("- SHA256：" + "``" + $exeSha + "``"),
+  ("- web 资源：www " + $wwwFiles.Count + " 个文件，" + [math]::Round($wwwBytes / 1MB, 2) + " MB（随 exe 一起分发）"),
   ("- 用户数据：" + "``" + $UserData + "``"),
   ("- 结果：**" + $script:pass + " 项通过 / " + $script:fail + " 项失败**"),
   '',

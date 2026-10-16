@@ -123,6 +123,15 @@ if ($wv2Ver) {
 $exeSrc = Join-Path $scriptDir 'main.go'
 if (-not (Test-Path -LiteralPath $exeSrc)) { throw "找不到 main.go（$exeSrc）" }
 
+# 应用图标 / 清单 / 版本信息：由 go-winres 从 winres\winres.json + app.ico 生成，入库后离线可构建
+$sysoPath = Join-Path $scriptDir 'rsrc_windows_amd64.syso'
+if (Test-Path -LiteralPath $sysoPath) {
+  Say ("应用图标   : 已内嵌 {0}（{1} 字节）" -f (Split-Path -Leaf $sysoPath), (Get-Item -LiteralPath $sysoPath).Length)
+} else {
+  Say '应用图标   : 缺少 rsrc_windows_amd64.syso —— exe 会退回系统默认图标。' 'Yellow'
+  Say '             重新生成：desktop\make-icon.ps1 然后用 go-winres make（见 desktop\README.md「应用图标」）' 'Yellow'
+}
+
 # ---------------------------------------------------------------- 2. 模块依赖
 
 Step '2/6 拉取 Go 模块依赖'

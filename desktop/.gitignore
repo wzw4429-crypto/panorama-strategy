@@ -3,7 +3,10 @@
 dist/
 bin/
 *.exe
-*.syso
 _test-appdata*/
 _test-*
 selftest-*/
+
+# 例外：rsrc_windows_amd64.syso 是构建输入（内嵌应用图标 + 清单 + 版本信息），必须入库，
+# 这样别人克隆后离线也能构建；改动 app.ico 后用 go-winres 重新生成，见 README。
+!rsrc_windows_amd64.syso
