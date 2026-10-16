@@ -5,7 +5,7 @@
 'use strict';
 const path = require('path');
 const SRC = path.join(__dirname, '..', 'src');
-const FILES = ['core.js', 'data-rules.js', 'data-map.js', 'world.js', 'sim.js', 'ai.js', 'systems.js', 'systems2.js', 'save.js'];
+const FILES = ['core.js', 'platform.js', 'data-rules.js', 'data-map.js', 'world.js', 'sim.js', 'ai.js', 'systems.js', 'systems2.js', 'save.js'];
 require(path.join(__dirname, '..', 'data', 'map-generated.js'));
 for (const f of FILES) require(path.join(SRC, f));
 const PSE = globalThis.PSE;
@@ -458,6 +458,53 @@ section('9. 生产：新增产线口径与提示（「有空工厂却说没有�
   ok(line.factories === 10, '产线 +1 在有空闲军工时生效（' + line.factories + '）');
   PSE.Cmd.setProdFactories(w, line.id, 99);
   ok(line.factories === 12 && PSE.Cmd.prodUsedMil(c) === 12, '产线 +1 超额时夹到军工上限（不出现空闲为负）');
+})();
+
+// ============================================================
+section('11. 平台适配层（桌面壳接入点 / 浏览器 / 无头降级）');
+(function () {
+  const P = PSE.Platform;
+  ok(!!P, 'platform.ts 已加载并暴露 PSE.Platform');
+  ok(P.kind() === 'web', '无宿主时识别为 web，实际 ' + P.kind());
+  ok(P.storageKind() === 'memory', 'Node 无 localStorage → 降级内存存储，实际 ' + P.storageKind());
+  ok(!P.isDesktop(), '无头环境不算桌面');
+
+  // 存档必须走 Platform.store()（旧版自己维护 localStorage/内存，两套实现会漂移）
+  const wp = PSE.World.create({ playerTag: 'GER', seed: 4242 });
+  const rp = PSE.Save.save(wp, 'platformTest', {});
+  ok(rp.ok && !!PSE.Save.load('platformTest'), '存档经 Platform.store() 可写可读');
+  ok(PSE.Save.list().some((s) => s.slot === 'platformTest'), '存档列表能看到 Platform 存储里的槽位');
+  PSE.Save.remove('platformTest');
+
+  // 注入假桌面壳：验证契约被解析（桌面侧只需实现 window.PSE_HOST）
+  const files = {};
+  let savedFile = null, ext = null;
+  globalThis.PSE_HOST = {
+    kind: 'tauri',
+    kv: {
+      get: (k) => (k in files ? files[k] : null),
+      set: (k, v) => { files[k] = String(v); },
+      remove: (k) => { delete files[k]; },
+      keys: () => Object.keys(files),
+    },
+    saveFile: (n, t) => { savedFile = { n, len: t.length }; return true; },
+    openFile: () => '{ "version": 1 }',
+    notify: () => {},
+    openExternal: (u) => { ext = u; },
+  };
+  try {
+    ok(P.kind() === 'tauri' && P.isDesktop(), '注入宿主后识别为桌面（tauri）');
+    ok(P.storageKind() === 'native', '桌面壳下存储切到原生 KV（不再用 localStorage）');
+    const rs = PSE.Save.save(wp, 'hostTest', {});
+    ok(rs.ok && !!files['pse_save_hostTest'], '桌面壳下存档写进原生 KV（沿用 pse_save_ 前缀）');
+    ok(!!PSE.Save.load('hostTest'), '桌面壳下存档可读回');
+    ok(P.download('x.json', 'abc') === true && savedFile && savedFile.n === 'x.json' && savedFile.len === 3, '导出走原生保存对话框');
+    ok(typeof P.pickText().then === 'function', '导入返回 thenable（壳与浏览器同一调用约定）');
+    ok(P.openExternal('https://example.com') === true && ext === 'https://example.com', '外链交给系统浏览器');
+  } finally {
+    delete globalThis.PSE_HOST;
+  }
+  ok(P.kind() === 'web' && P.storageKind() === 'memory', '壳移除后回到浏览器/内存实现');
 })();
 
 // ============================================================

@@ -69,7 +69,7 @@ function step(name, fn) {
 // ---------- 加载浏览器脚本 ----------
 const SRC = path.join(__dirname, '..', 'src');
 require(path.join(__dirname, '..', 'data', 'map-generated.js'));
-for (const f of ['core.js', 'data-rules.js', 'data-map.js', 'world.js', 'sim.js', 'ai.js', 'systems.js', 'systems2.js', 'save.js', 'render.js', 'ui.js', 'main.js']) {
+for (const f of ['core.js', 'platform.js', 'data-rules.js', 'data-map.js', 'world.js', 'sim.js', 'ai.js', 'systems.js', 'systems2.js', 'save.js', 'render.js', 'ui.js', 'main.js']) {
   require(path.join(SRC, f));
 }
 const PSE = globalThis.PSE;
@@ -436,6 +436,28 @@ step('面板全屏：国策/科研可放大观看使用（新功能回归）', (
   if (side.classList.contains('panelFs')) throw new Error('退出全屏未去掉 panelFs 类');
   if (document.getElementById('tabs').innerHTML.indexOf('data-panelfstab') >= 0) throw new Error('退出全屏后仍显示全部标签按钮');
   globalThis.innerHeight = oldH;
+  UI.setTab('production', PSE.Game);
+});
+
+step('平台适配层：浏览器退回原行为，壳契约可注入（桌面壳接入点）', () => {
+  const fs = require('fs');
+  const P = PSE.Platform, UI = PSE.UI;
+  if (!P) throw new Error('PSE.Platform 未加载（index.html 需在 save.js 之前加载 platform.js）');
+  if (P.kind() !== 'web') throw new Error('无宿主时应识别为 web，实际 ' + P.kind());
+  if (P.isDesktop()) throw new Error('无头环境不应识别为桌面');
+  // 脚本顺序：platform.js 必须在 save.js / ui.js 之前（save 走 Platform.store）
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const ip = html.indexOf('src/platform.js'), is = html.indexOf('src/save.js'), iu = html.indexOf('src/ui.js');
+  if (ip < 0) throw new Error('index.html 未加载 platform.js');
+  if (!(ip < is && ip < iu)) throw new Error('platform.js 应在 save.js / ui.js 之前加载');
+  // 存档面板：导出 + 导入都在（导入为这轮新增，桌面壳下会换成原生对话框）
+  if (typeof UI.exportSave !== 'function' || typeof UI.importSave !== 'function') throw new Error('UI.exportSave / UI.importSave 缺失');
+  let found = false;
+  for (const tab of ['production', 'research', 'focus', 'army', 'diplomacy', 'logistics', 'equipment', 'navy', 'air', 'spy']) {
+    UI.setTab(tab, PSE.Game);
+    if (document.getElementById('panelBody').innerHTML.indexOf('data-import') >= 0) { found = true; break; }
+  }
+  if (!found) throw new Error('没有任何面板渲染出「导入存档」按钮');
   UI.setTab('production', PSE.Game);
 });
 

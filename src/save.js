@@ -1,14 +1,17 @@
 "use strict";
 /* PSE · 存档 (save.js)
- * 浏览器用 localStorage；Node 下（无头测试）自动降级为内存存储。
+ * 存储走 PSE.Platform.store()：桌面壳原生文件 > localStorage > 内存（Node 无头测试）。
  * 铁人模式：每月自动存档、禁用作弊命令、存档带校验和。
  */
 (function (root) {
     'use strict';
     const PSE = (root.PSE = root.PSE || {});
     const Save = (PSE.Save = {});
+    /** 兼容没有 platform.js 的老页面/单测：退回 localStorage 或内存 */
     const mem = {};
     function store() {
+        if (PSE.Platform && PSE.Platform.store)
+            return PSE.Platform.store();
         try {
             if (typeof root.localStorage !== 'undefined' && root.localStorage)
                 return root.localStorage;

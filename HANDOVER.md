@@ -2,7 +2,7 @@
 
 > 交接时间：2026-10-15　｜　仓库：`D:\dsh\panorama`（git，分支 `main`）
 > 远端：https://github.com/wzw4429-crypto/panorama-strategy
-> 当前健康度：两套测试全绿（**118/118 + 24/24**）；已修 P0 地图红色横带与空白帧（§4）、P1 手机横屏排版（§4）、生产面板闪白与新增产线口径（§4）；（§5）另按用户要求补上「师团点名 / 按名字组合 / 编组」「集团军自定义：数量/名称/将领/编成」「国策 / 科研等面板全屏观看使用」。
+> 当前健康度：两套测试全绿（**132/132 + 25/25**）；已修 P0 地图红色横带与空白帧（§4）、P1 手机横屏排版（§4）、生产面板闪白与新增产线口径（§4）；（§5）另按用户要求补上「师团点名 / 按名字组合 / 编组」「集团军自定义：数量/名称/将领/编成」「国策 / 科研等面板全屏观看使用」；并已落地**平台适配层** `src/platform.ts`（web 退回原行为，桌面壳注入 `window.PSE_HOST` 即可接管存档/文件对话框，见 §3/§6）。
 
 ---
 
@@ -25,8 +25,8 @@ node server.js 8787           # node 不在 PATH，见 §6 绝对路径
 # 浏览器打开 http://127.0.0.1:8787/   或直接双击 index.html
 
 # 2) 跑测试（改任何逻辑后必跑）
-node --max-old-space-size=3072 tests/headless.js 3     # 118 项：地图/世界/3年长跑/确定性/存档/战斗/扩展系统/剧本/生产口径
-node tests/dom-smoke.js                                # 24 项：DOM 桩渲染 + 全部面板 + 面板刷新/全屏回归
+node --max-old-space-size=3072 tests/headless.js 3     # 132 项：地图/世界/3年长跑/确定性/存档/战斗/扩展系统/剧本/生产口径/集团军/平台层
+node tests/dom-smoke.js                                # 25 项：DOM 桩渲染 + 全部面板 + 面板刷新/全屏回归 + 平台层
 
 # 3) 改 TS 后必须重新编译（浏览器加载的是 src/*.js）
 npm run build      # = tsc -p tsconfig.json，就地 emit src/*.js
@@ -55,7 +55,8 @@ panorama/
 │   ├── ai.ts             各国 AI：国策评分、生产再平衡、扩军、战线与进攻
 │   ├── systems.ts        装备设计器、军贸/租借、海军舰队与海战、空军任务、间谍、傀儡、燃料、核武
 │   ├── systems2.ts       煤炭、决议与民族精神、将领/集团军/前线计划、学说精通度、阵营、和平会议、自制度、难度、剧本、控制台、MOD
-│   ├── save.ts           localStorage 存档（Node 下降级内存）
+│   ├── save.ts           存档（经 platform.ts 落到 localStorage / 桌面壳 / 内存）
+│   ├── platform.ts       平台适配层：kind()/store/saveText/openText/notify（web·PWA·Tauri·Electron 接入点）
 │   ├── render.ts         Canvas 渲染 + 7 图层（补给管网/战线折线/海区航线/空域/抵抗/地形/政治）
 │   ├── ui.ts             顶栏、10 面板、省份详情、事件与和平弹窗、日志、toast、师团点名/编组选择
 │   └── main.ts           主循环(rAF)、速度、摄像机输入、快捷键、控制台、自动存档
@@ -71,8 +72,29 @@ panorama/
 关键不变量（改代码时别破坏）：
 - 状态纯 JSON 可序列化；**省 id = `w.provinces` 数组下标**
 - 确定性：禁止 `Math.random` / `Date.now` 参与世界演化（用 `PSE.rng.fork(salt)`），同种子双跑 `stateHash` 必须一致
-- 加载顺序：core → data-rules → map-generated → data-map → world → sim → ai → systems → systems2 → save → render → ui → main
+- 加载顺序：core → platform → data-rules → map-generated → data-map → world → sim → ai → systems → systems2 → save → render → ui → main
 - 渲染投影是**等距圆柱（plate carrée）**：`x=(lon-lonMin)/(lonMax-lonMin)`、`y=(latMax-lat)/(latMax-latMin)`，只此一处（`data-map.ts`），render 一律走 `MD.project/unproject`
+
+**平台适配层契约（`src/platform.ts`，桌面壳/PWA 接入点）**
+
+页面只通过 `PSE.Platform` 触碰宿主能力，**浏览器（含 Android WebView）下全部退回原行为**，所以无宿主也能玩：
+
+```js
+// 壳在页面加载前注入（core.js / platform.js 之前设好即可）
+window.PSE_HOST = {
+  kind: 'tauri' | 'electron' | 'pwa' | 'web',        // 可选，缺省按 __TAURI__ / process.versions.electron / standalone 判定
+  kv: { get(k), set(k, v), remove(k), keys() },      // 可选：同步键值（原生文件/store），缺省退回 localStorage
+  saveFile(name, text, mime) -> boolean,             // 可选：原生"保存"对话框，接管"导出存档"
+  openFile() -> string | null,                       // 可选：原生"打开"对话框，接管"导入存档"
+  notify(title, body),                               // 可选：系统通知
+  fullscreen(on),                                    // 可选：窗口全屏
+  openExternal(url),                                 // 可选：系统浏览器打开
+};
+```
+
+- `PSE.Platform` 暴露：`kind()` / `isDesktop()` / `isMobile()` / `store()`（= 宿主 kv > localStorage > 内存）/ `storageKind()` / `download(name,text,mime)` / `pickText(accept)` / `notify()` / `fullscreen(on)` / `openExternal(url)` / `info()`
+- 宿主方法**逐个**探测：某个方法不存在或抛错只影响那一项，其余仍走 web 实现（浏览器/Android WebView 行为与旧版完全一致）
+- 契约在 `tests/headless.js`（14 项）与 `tests/dom-smoke.js`（1 项）里有回归：断言 web 判定、脚本加载顺序、壳注入后 store/文件对话框被接管、壳移除后回退
 
 ---
 
@@ -154,10 +176,10 @@ K80 横屏（1067×480）下工具行按钮被换行挤压，"拖动平移·滚�
 - 基础：`tests/headless.js 3` 96/96、`tests/dom-smoke.js` 20/20
 
 ### P2 · 杂项
-- `package.json` 的 `description` 是乱码（写入时编码坏了，纯 cosmetic）
+- ~~`package.json` 的 `description` 是乱码~~ → **已复查：文件本身没有问题**（`description` 解码后是「全景式历史战略模拟引擎（1936-1950）—— Web/Android 原型」，码点正确、无 U+FFFD；43 个文本文件全量扫描均合法 UTF-8）。见下一条。
 - PowerShell 读取 UTF-8 文件（含 `.gitignore`、workflow）会显示乱码——**只是显示问题**，文件本身正常，不要"顺手重写"
 - `tests/` 取证工具：**保留并入库** `rowprofile.py`（行剖面）＋`bandlat.py`（横带定位，画布顶探测的"面板色误判"已收紧判据）；一次性脚本（`probe9/10/12-15.js`、`forensics.py`、`pngsample.py`）与 `apk_check/`、Chrome 临时 profile、`__pycache__` 已清理；`.gitignore` 新增 `tests/.chrome-*/` 与 `__pycache__/`
-- README 的功能对照表随 UI 演进可能略有出入，修完 bug 顺带更新
+- ~~README 的功能对照表随 UI 演进可能略有出入~~ → **本轮已核对更新**（操作表加面板全屏、工业表加"新增产线"、指挥表重写"集团军"、陆军表加"师团点名与编组"、工程结构加 `platform.ts`、测试数字改 132/25、新增"平台适配层"小节）
 
 ---
 
@@ -166,7 +188,7 @@ K80 横屏（1067×480）下工具行按钮被换行挤压，"拖动平移·滚�
 | 要求 | 出处 | 状态 |
 |---|---|---|
 | 修到"没有任何一点 bug"再推送 | m01338 | P0/P1 + 本轮三件事已修并本地提交（`d51d3cc` + `0cee85a` + `851312d` + `8dcd51d` + 本次），待用户确认后推送 |
-| 每次修完自己跑测试并全面复查代码 | m01338 | 持续执行中（现 118/118 + 24/24） |
+| 每次修完自己跑测试并全面复查代码 | m01338 | 持续执行中（现 132/132 + 25/25） |
 | 交接文档 | m01471 | **本文档** |
 | 自主推进、不要频繁确认 | 会话早期多轮 | 持续遵守 |
 | 把聚在一地的师拆开、给每个师起名字、按名字组合 | 用户（本轮） | **已实现**：师团名带兵种（如 德国·第3装甲师）；「陆军」面板逐个师点选（拆堆叠）、按名字组合选中、「存为编组」一键召回（随存档持久化） |
@@ -195,6 +217,7 @@ git fetch origin          # 同步 tracking ref（否则 status 会显示 ahead�
 | Python（取证） | `C:\Users\wupengyaguangyaxuan\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe`（含 Pillow；`rowprofile.py` 甚至不用它，纯 zlib 解 PNG） |
 | `--dump-dom` | 与 `--virtual-time-budget` 同用；输出重定向后同样要等进程结束再读，过早读会得到空文件 |
 | `--virtual-time-budget` 会挂住 | headless 加 `--virtual-time-budget=…` 时，本工程有 `requestAnimationFrame` 主循环 + 350ms 定时器，虚拟时间跑不完会**一直不退出**（实测 120s 被杀，截图 0 字节）。截图/取 DOM 只等真实时间（`--timeout=…` 或直接 `Start-Sleep`），不要用虚拟时间预算 |
+| 桌面壳 / PWA | 页面加载前注入 `window.PSE_HOST`（契约见 §3）；无宿主时 `PSE.Platform.kind()==='web'`、存档走 localStorage。桌面打包另派了独立的 Bot 负责，web 侧只需保住这个契约 |
 | 本地服务 | `node server.js 8787`；已加 `no-store` 缓存头（改了 JS 不生效时先怀疑缓存） |
 | 复现地图 bug 的最短路径 | `?auto=GER&speed=3&days=60&zoom=1&layer=political` → 看顶部/高纬是否出现横带；`zoom=2` 多截几次看是否空白 |
 
@@ -216,7 +239,7 @@ git fetch origin          # 同步 tracking ref（否则 status 会显示 ahead�
 ## 8. 交接后建议的第一步
 
 1. `node server.js 8787` + 浏览器打开，确认可玩（当前服务在本机 8787 已起）
-2. 跑两套测试，确认基线仍为 **118/118 + 24/24**（含 §4 P0/P1 的 4 项回归、生产口径与面板刷新/全屏回归）
+2. 跑两套测试，确认基线仍为 **132/132 + 25/25**（含 §4 P0/P1 的 4 项回归、生产口径与面板刷新/全屏回归、集团军与平台层回归）
 3. 若再动地图算法：改 `tools/build-map.js` → `node tools/build-map.js` 重生成 `data/map-generated.js`（约 1 分钟）→ 两套测试；**任何跨 ±180° 的环都必须先 `splitAntimeridian` 再参与平面运算**
 4. 若再动渲染时序：`node <npx 缓存里的 tsc.js> -p tsconfig.json` 编译 → 两套测试 → 多次 `zoom=2` 截图（456KB≈正常，105KB≈空白帧）→ 提交
 5. 提交后推送（触发 APK 重建）→ 在 Actions 下载新 APK 实机验证；推送 token 由用户提供

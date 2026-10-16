@@ -915,7 +915,7 @@
 
     h += '<div class="sec"><div class="secTitle">存档</div><div class="row wrap">' +
       '<button data-save="1">保存</button><button data-load="1">读取</button>' +
-      '<button data-export="1">导出存档</button><button data-ironman="1">' + (w.ironman ? '铁人：开' : '铁人：关') + '</button>' +
+      '<button data-export="1">导出存档</button><button data-import="1">导入存档</button><button data-ironman="1">' + (w.ironman ? '铁人：开' : '铁人：关') + '</button>' +
       '</div><div class="small muted">铁人模式：每月自动存档、禁用一切调试命令。</div></div>';
     return h;
   }
@@ -1147,6 +1147,7 @@
     el.querySelectorAll('[data-save]').forEach((b: any) => b.onclick = () => UI.save(g));
     el.querySelectorAll('[data-load]').forEach((b: any) => b.onclick = () => UI.load(g));
     el.querySelectorAll('[data-export]').forEach((b: any) => b.onclick = () => UI.exportSave(g));
+    el.querySelectorAll('[data-import]').forEach((b: any) => b.onclick = () => UI.importSave(g));
     el.querySelectorAll('[data-ironman]').forEach((b: any) => b.onclick = () => {
       w.ironman = !w.ironman;
       UI.toast(w.ironman ? '铁人模式开启：每月自动存档' : '铁人模式关闭');
@@ -1416,12 +1417,32 @@
   };
   UI.exportSave = function (g) {
     const text = PSE.Save.exportText(g.world);
-    const blob = new Blob([text], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'pse-save-' + g.world.playerTag + '-' + Math.floor(g.world.hour / 24) + 'd.json';
-    a.click();
-    UI.toast('存档已导出');
+    const name = 'pse-save-' + g.world.playerTag + '-' + Math.floor(g.world.hour / 24) + 'd.json';
+    // 桌面壳（Tauri/Electron）走原生保存对话框，浏览器走下载
+    const ok = PSE.Platform ? PSE.Platform.download(name, text) : false;
+    if (!ok) {
+      const blob = new Blob([text], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      a.click();
+    }
+    UI.toast('存档已导出' + (PSE.Platform && PSE.Platform.isDesktop() ? '（原生对话框）' : ''));
+  };
+  /** 导入存档文件：桌面壳/浏览器统一入口 */
+  UI.importSave = function (g) {
+    if (!PSE.Platform) { UI.toast('导入不可用', 'warn'); return; }
+    PSE.Platform.pickText().then((text: any) => {
+      if (!text) return;
+      const w = PSE.Save.importText(text);
+      if (!w) { UI.toast('存档文件读取失败', 'warn'); return; }
+      g.world = w;
+      PSE.Sim.rebuildDivIndex(w);
+      PSE.Render.game = g;
+      selectedDivs = [];
+      UI.toast('已导入存档：' + PSE.Time.formatShort(w.hour));
+      UI.renderAll(g);
+    });
   };
 
   UI.setLayer = function (layer, g) {
