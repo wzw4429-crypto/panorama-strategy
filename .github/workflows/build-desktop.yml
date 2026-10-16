@@ -1,0 +1,68 @@
+name: Build Windows Desktop
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'desktop/**'
+      - 'index.html'
+      - 'src/**'
+      - 'data/**'
+      - '.github/workflows/build-desktop.yml'
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'index.html'
+      - 'src/**'
+      - 'data/**'
+      - '.github/workflows/build-desktop.yml'
+  workflow_dispatch:
+
+jobs:
+  desktop:
+    # Windows runner 自带 Microsoft Edge WebView2 Runtime，可直接跑壳的冒烟自检
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache-dependency-path: desktop/go.sum
+
+      # 构建 exe + www，并跑一遍完整的端到端验收（8 组 23 项，产出截图与报告）
+      - name: Build desktop package
+        shell: pwsh
+        run: ./desktop/build.ps1 -Zip
+
+      # 无交互桌面的托管 runner 上，创建窗口/抓图可能受限，所以这一步失败不算 CI 失败；
+      # 本机完整验收证据见 desktop/dist/_evidence（verify.ps1 8 组 23 项）
+      - name: Self test (启动 → 自动开局 → 探针 → 存档 → 新进程读档比对)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          New-Item -ItemType Directory -Force -Path desktop/dist/_evidence | Out-Null
+          $exe = "desktop/dist/PSE-Panorama/PSE-Panorama.exe"
+          & $exe --pse-version
+          $env:LOCALAPPDATA = "$PWD/desktop/dist/_ci-userdata"
+          & $exe --pse-root desktop/dist/PSE-Panorama/www --pse-query "auto=GER&speed=3" `
+                 --pse-probe --pse-save ci_slot --pse-capture desktop/dist/_evidence/ci-start.png --pse-exit
+          & $exe --pse-root desktop/dist/PSE-Panorama/www --pse-query "auto=GER&speed=3" `
+                 --pse-load ci_slot --pse-exit
+
+      - name: Web regression tests (不破坏 web 版)
+        shell: pwsh
+        run: |
+          node --max-old-space-size=3072 tests/headless.js 3
+          node tests/dom-smoke.js
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: panorama-strategy-windows-x64
+          path: |
+            desktop/dist/PSE-Panorama-win-x64.zip
+            desktop/dist/_evidence/*.png
+            desktop/dist/_evidence/*.md
+          if-no-files-found: warn

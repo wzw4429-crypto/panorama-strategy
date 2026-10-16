@@ -65,6 +65,7 @@ panorama/
 │   └── map-generated.js     生成产物：1293 省多边形 + 230 跨海通道 + 26 海区（670 KB）
 ├── tools/build-map.js    地图生成器（改地图算法后重跑，约 1 分钟）
 ├── android/              Android WebView 壳（Gradle 工程）
+├── desktop/              ★ Windows 桌面壳（Go + WebView2）：main.go / build.ps1 / verify.ps1 / README.md，见 §7
 ├── .github/workflows/build-apk.yml   CI：tsc → 签名 → 打包 APK
 └── tests/                headless.js / dom-smoke.js / probe*.js / *.py 取证脚本
 ```
@@ -234,13 +235,39 @@ git fetch origin          # 同步 tracking ref（否则 status 会显示 ahead�
 | Python（取证） | `C:\Users\wupengyaguangyaxuan\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe`（含 Pillow；`rowprofile.py` 甚至不用它，纯 zlib 解 PNG） |
 | `--dump-dom` | 与 `--virtual-time-budget` 同用；输出重定向后同样要等进程结束再读，过早读会得到空文件 |
 | `--virtual-time-budget` 会挂住 | headless 加 `--virtual-time-budget=…` 时，本工程有 `requestAnimationFrame` 主循环 + 350ms 定时器，虚拟时间跑不完会**一直不退出**（实测 120s 被杀，截图 0 字节）。截图/取 DOM 只等真实时间（`--timeout=…` 或直接 `Start-Sleep`），不要用虚拟时间预算 |
-| 桌面壳 / PWA | 页面加载前注入 `window.PSE_HOST`（契约见 §3）；无宿主时 `PSE.Platform.kind()==='web'`、存档走 localStorage。**桌面判定看"有没有宿主"（isDesktop），kind 只是标签**——Go+WebView2 壳报 `webview2` 也照样算桌面。桌面打包另派了独立的 Bot 负责（Go + WebView2，用 `https://panorama.local/` 或 127.0.0.1 临时 HTTP 服务加载，不走 file://），web 侧只需保住这个契约 |
+| 桌面壳 / PWA | 页面加载前注入 `window.PSE_HOST`（契约见 §3）；无宿主时 `PSE.Platform.kind()==='web'`、存档走 localStorage。**桌面判定看"有没有宿主"（isDesktop），kind 只是标签**——Go+WebView2 壳报 `webview2` 也照样算桌面。桌面壳已完成，见 **§7**（Go + WebView2，`https://panorama.local/` 虚拟主机，不走 file://），web 侧只需保住这个契约 |
 | 本地服务 | `node server.js 8787`；已加 `no-store` 缓存头（改了 JS 不生效时先怀疑缓存） |
 | 复现地图 bug 的最短路径 | `?auto=GER&speed=3&days=60&zoom=1&layer=political` → 看顶部/高纬是否出现横带；`zoom=2` 多截几次看是否空白 |
 
 ---
 
-## 7. Android / APK
+## 7. Windows 桌面版（Go + WebView2 壳，已完成）
+
+产物：`desktop\dist\PSE-Panorama\`（exe 3.51 MB + `www\` 16 文件 1.26 MB，另可出 1.80 MB 的 zip）。全程**只动 `desktop/`**，不碰 `src/`、`index.html`、`data/`、`tests/`、`tools/`。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Zip      # 出包
+powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -SelfTest # 出包 + 冒烟自检
+powershell -ExecutionPolicy Bypass -File desktop\verify.ps1 -FreshUserData  # 8 组 23 项验收
+```
+
+四条硬性设计（理由都是实测踩出来的）：
+
+1. **不用 `file://`，用 `SetVirtualHostNameToFolderMapping` 映射成 `https://panorama.local/`** —— file:// 下 WebView2 的 localStorage 不可靠会丢存档；虚拟主机是正常 https 源，零端口零防火墙弹窗。
+2. **`UserDataFolder=%LOCALAPPDATA%\PSE-Panorama`**，存档（`EBWebView\Default\Local Storage`）与窗口记忆（`window-state.json`）都在这里，删目录即清档。
+3. **只拦 F11**（`AcceleratorKeyCallback` 里 `vk==0x7B`）：`F`/`Shift+F`/`Esc`/数字键/`L`/`S` 全部透传，并 `AreDefaultContextMenusEnabled=false` 让右键归游戏用。
+4. **PerMonitorV2 DPI + 窗口位置尺寸记忆（含跨屏 clamp）+ 单实例**（`Local\PSE-Panorama-Shell` 互斥体，第二次双击切前台）。
+
+宿主桥 `window.PSE_HOST`（`kind:'webview2'`）必须在**导航之前**注入（`AddScriptToExecuteOnDocumentCreated` 对当前文档无效，顺序反了就是白屏）；kv 基于 localStorage，契约与 `src/platform.ts` 逐项对齐（`store()` 的接口是 `getItem/setItem/removeItem/key/length`）。
+
+**验收实测（`desktop\verify.ps1`，23/23 通过）**：宿主桥注入 ✓；`origin=https://panorama.local` ✓；`?auto=GER&speed=3` 自动开局、`canvasMean=50`（0＝全黑）✓；启动 进程start→nav-completed **2744 ms**（热启动 2600/2612/2623 ms）✓；**进程 A 写存档 `hash=2968368646` → 全新进程 B 读回同一 hash** ✓；窗口 `300,150 1280x860` 记忆跨重启 ✓；全屏 `0,0 1920x1080`（无标题栏）开/关 ✓；第二实例 31 ms 退出、进程数仍为 1 ✓；运行时回读 `右键菜单=false 开发者工具=false`、`AreDpiAwarenessContextsEqual=1` ✓。截图与《验收报告.md》在 `desktop\dist\_evidence\`（dist 已 gitignore）。同期 web 两套测试仍 **146/146 + 27/27**，未受桌面壳影响。
+
+**该路线踩过的坑（改壳时注意）**：① 库 `github.com/jchv/go-webview2` 的 `Resize()` 在 controller 未就绪时直接 return，初始 `WM_SIZE` 会丢 → WebView2 永远 0×0、窗口一片白，`Embed()` 成功后必须显式再 `Resize()` 一次；② 该库用 `int64(res) < 0` 判 HRESULT 失败，amd64 上零扩展恒为正 → 失败漏判后空指针崩，别依赖它的错误判断；③ `ICoreWebView2Controller` 的 `Close` 库里只声明字段没实现，得自己按 vtable 槽位 24 调用（先 `PutIsVisible(false)`），否则退出时 localStorage 落盘不干净（实测会冒一行 `can't open file for write !`）；④ `RegisterClassExW` 的 `HCursor` 必须传 `LoadCursorW` 得到的真实句柄，直接写 32512 会 `ERROR_INVALID_PARAMETER`；⑤ 所有 WebView2 COM 调用必须在同一 UI 线程（`runtime.LockOSThread`），在协程里调用会崩。
+**已知限制**：自动化会话拿不到交互式前台，WebView2 也不处理 `PostMessage` 造的伪输入 → 键鼠注入无法端到端复现；F11 的端到端验证走 `--pse-fullscreen`（与 F11 回调同一个 `toggleFullscreen()`），"不抢按键"由拦截矩阵 + 设置回读保证。
+
+---
+
+## 8. Android / APK
 
 - 工程：`android/`（`com.pse.panorama`，`versionCode 2` / `versionName 1.1.0`，minSdk 24 / target 34，横屏、常亮、`file:///android_asset/www/index.html`，启动封面 + 图标 + 沉浸模式）
 - 签名：PKCS#12 密钥库 `android/app/pse-release.p12`（**已 gitignore，不入库**；本地构建把它放进 `android/app/` 并设 `PANORAMA_KEYSTORE_PASSWORD` 即可自动签名）
@@ -253,7 +280,7 @@ git fetch origin          # 同步 tracking ref（否则 status 会显示 ahead�
 
 ---
 
-## 8. 交接后建议的第一步
+## 9. 交接后建议的第一步
 
 1. `node server.js 8787` + 浏览器打开，确认可玩（当前服务在本机 8787 已起）
 2. 跑两套测试，确认基线仍为 **146/146 + 27/27**（含 §4 P0/P1 的 4 项回归、悬停提示与弹窗点击回归、生产口径与面板刷新/全屏回归、集团军与平台层回归）

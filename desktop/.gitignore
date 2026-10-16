@@ -1,0 +1,9 @@
+# 桌面壳构建产物 / 本地测试痕迹
+
+dist/
+bin/
+*.exe
+*.syso
+_test-appdata*/
+_test-*
+selftest-*/

@@ -185,7 +185,18 @@ node tools/build-map.js                               # 重新生成地图（约
 - 桌面壳只需在页面加载前注入 `window.PSE_HOST`（`{kind, desktop?, kv:{get,set,remove,keys}, saveFile, openFile, notify, fullscreen, openExternal}`）即可接管存档、文件对话框、通知与窗口全屏；宿主方法逐个探测，缺一个只影响那一项
 - 桌面判定以「有没有宿主」为准：Go + WebView2 壳报 `kind: 'webview2'` 也算桌面（`kind` 只作展示）；宿主显式写 `desktop: false` 时才按 web 处理
 - 存档面板新增「导入存档」，桌面壳下会换成原生打开对话框（走 `PSE_HOST.openFile`）
-- 接入点与协议细节见 `HANDOVER.md` §3/§6
+- 接入点与协议细节见 `HANDOVER.md` §3/§7
+
+**Windows 桌面版（Go + WebView2，已完成）**
+
+`desktop\` 下是独立于 web 的桌面壳：Go 静态编译的单文件 exe（约 3.5 MB）+ `www\`（就是本仓库的静态产物），用 `SetVirtualHostNameToFolderMapping` 把 www 映射成 `https://panorama.local/`（**不用 `file://`**，否则 localStorage 会丢存档），存档落在 `%LOCALAPPDATA%\PSE-Panorama`；F11 全屏、窗口位置记忆、单实例、PerMonitorV2 DPI、禁用 WebView2 默认右键菜单，游戏自己的 `F`/`Shift+F`/`Esc` 等按键全部透传。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Zip        # 出 exe + www + zip
+powershell -ExecutionPolicy Bypass -File desktop\verify.ps1 -FreshUserData  # 8 组 23 项端到端验收
+```
+
+桌面壳只消费 web 产物，**不修改任何游戏代码**；详细设计、验收证据与排障见 `desktop\README.md`、`HANDOVER.md` §7。
 
 ---
 
