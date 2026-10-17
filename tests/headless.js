@@ -607,5 +607,119 @@ section('14. 主题化下拉组件（无 DOM 环境降级 + 选项/状态 API）
 })();
 
 // ============================================================
+section('15. 海战日志去噪（0 损失不记录 + 同海区每周合并一条）');
+(function navalLog() {
+  const zones = PSE.MapData.seaZones.map((z) => z.id);
+  const zoneA = zones[0], zoneB = zones[1];
+  const origReorg = PSE.Navy.reorganize;
+  const navalLines = (w) => (w.log || []).filter((l) => /^海区（.+）：\d+ 组舰队交战，损失 \d+ 艘$/.test(l.text));
+  const fleet = (id, zone, ships) => ({ id: id, zone: zone, ships: ships, mission: 'patrol' });
+  const mkClean = (hour) => {
+    const nw = mkWorld('GER');
+    for (const t in nw.countries) {
+      const c = nw.countries[t];
+      if (c.fleets) c.fleets = [];
+      for (const k of Object.keys(PSE.SHIP_TYPES)) c.stockpile[k] = 0;
+    }
+    PSE.Diplo.declareWar(nw, 'GER', 'POL', { silent: true });
+    nw.hour = hour;
+    return nw;
+  };
+
+  // 测试 (1)(2)(3)(4) 停用周界自动编队，保留手工构造的舰队（否则 reorganize 会用库存重建舰队）
+  PSE.Navy.reorganize = () => {};
+
+  // (1) 0 损失：成对交战但双方都没有可损失的舰船库存 → 不写日志
+  {
+    const nw = mkClean(24 * 7);
+    nw.countries.GER.fleets = [fleet(1, zoneA, 100)];
+    nw.countries.POL.fleets = [fleet(1, zoneA, 100)];
+    const before = (nw.log || []).length;
+    PSE.Navy.daily(nw);
+    ok((nw.log || []).length === before, '损失为 0 时不写海战日志（旧版每对舰队每周写一条「损失 0 艘」）');
+  }
+
+  // (2) 同一海区多对舰队交战合并成一条
+  {
+    const nw = mkClean(24 * 7);
+    const g = nw.countries.GER, p = nw.countries.POL;
+    g.stockpile.convoy = 900; p.stockpile.convoy = 900;
+    g.fleets = [fleet(1, zoneA, 100), fleet(2, zoneA, 100), fleet(3, zoneA, 100)];
+    p.fleets = [fleet(1, zoneA, 100), fleet(2, zoneA, 100), fleet(3, zoneA, 100)];
+    const before = (nw.log || []).length;
+    PSE.Navy.daily(nw);
+    const lines = (nw.log || []).slice(before).filter((l) => /^海区（/.test(l.text));
+    ok(lines.length === 1, '同一海区 3×3 对交战合并成 1 条日志（实际 ' + lines.length + ' 条）');
+    const m = lines.length === 1 ? lines[0].text.match(/^海区（(.+)）：(\d+) 组舰队交战，损失 (\d+) 艘$/) : null;
+    ok(!!m && m[2] === '9' && Number(m[3]) > 0,
+      '合并口径「海区（名）：N 组舰队交战，损失 M 艘」→ ' + (lines[0] ? lines[0].text : '无日志'));
+    ok((nw.log || []).slice(before).every((l) => !/损失 0 艘/.test(l.text)), '新日志不再出现「损失 0 艘」');
+  }
+
+  // (3) 不同海区各自一条；每海区每周不超过 1 条
+  {
+    const nw = mkClean(24 * 7);
+    const g = nw.countries.GER, p = nw.countries.POL;
+    g.stockpile.convoy = 900; p.stockpile.convoy = 900;
+    g.fleets = [fleet(1, zoneA, 100), fleet(2, zoneB, 100)];
+    p.fleets = [fleet(1, zoneA, 100), fleet(2, zoneB, 100)];
+    const before = (nw.log || []).length;
+    PSE.Navy.daily(nw);
+    const lines = (nw.log || []).slice(before).filter((l) => /^海区（/.test(l.text));
+    const byZone = {};
+    for (const l of lines) { const m = l.text.match(/^海区（(.+)）：/); if (m) byZone[m[1]] = (byZone[m[1]] || 0) + 1; }
+    ok(lines.length === 2 && Object.keys(byZone).length === 2 && Object.keys(byZone).every((k) => byZone[k] === 1),
+      '不同海区各 1 条、每海区每周不超过 1 条（实际 ' + lines.length + ' 条）');
+  }
+
+  // (4) 只有周界（每 168 小时）才写；平时只结算不写日志
+  {
+    const nw = mkClean(24 * 7 + 5);
+    const g = nw.countries.GER, p = nw.countries.POL;
+    g.stockpile.convoy = 900; p.stockpile.convoy = 900;
+    g.fleets = [fleet(1, zoneA, 100)]; p.fleets = [fleet(1, zoneA, 100)];
+    const before = (nw.log || []).length;
+    PSE.Navy.daily(nw);
+    ok((nw.log || []).length === before, '非周界小时只结算、不写日志');
+    nw.hour = 24 * 7 * 2;
+    PSE.Navy.daily(nw);
+    ok(navalLines(nw).length === 1, '到周界写 1 条合并战报（实际 ' + navalLines(nw).length + ' 条）');
+  }
+
+  // (5) 真实路径（不 mock 周编队）：周结算不再有 0 损失刷屏，且每海区最多 1 条
+  {
+    PSE.Navy.reorganize = origReorg;
+    const nw = mkWorld('GER');
+    for (const t in nw.countries) {
+      const c = nw.countries[t];
+      if (c.fleets) c.fleets = [];
+      for (const k of Object.keys(PSE.SHIP_TYPES)) c.stockpile[k] = 0;
+    }
+    nw.countries.GER.stockpile.convoy = 900;
+    nw.countries.POL.stockpile.convoy = 900;
+    PSE.Diplo.declareWar(nw, 'GER', 'POL', { silent: true });
+    nw.hour = 24 * 7;
+    const before = (nw.log || []).length;
+    PSE.Navy.daily(nw);
+    const fresh = (nw.log || []).slice(before);
+    const lines = fresh.filter((l) => /^海区（/.test(l.text));
+    const zero = fresh.filter((l) => /损失 0 艘/.test(l.text));
+    console.log('  [真实路径] 本周新日志 ' + fresh.length + ' 条，海区合并 ' + lines.length + ' 条：' +
+      (lines.map((l) => l.text).join(' / ') || '（本世界无同海区交战）'));
+    ok(zero.length === 0, '真实周结算不再出现「损失 0 艘」日志');
+    const byZone = {};
+    let bad = 0;
+    for (const l of lines) {
+      const m = l.text.match(/^海区（(.+)）：(\d+) 组舰队交战，损失 (\d+) 艘$/);
+      if (!m || Number(m[3]) <= 0) { bad++; continue; }
+      byZone[m[1]] = (byZone[m[1]] || 0) + 1;
+    }
+    ok(bad === 0 && Object.keys(byZone).every((k) => byZone[k] === 1),
+      '真实路径每条战报格式合规、损失 > 0、每海区最多 1 条（实际 ' + lines.length + ' 条）');
+  }
+  PSE.Navy.reorganize = origReorg;
+})();
+
+// ============================================================
 console.log('\n' + (failures === 0 ? '\x1b[32m全部通过\x1b[0m' : '\x1b[31m失败 ' + failures + ' 项\x1b[0m') + '（检查 ' + checks + ' 项）');
 process.exit(failures === 0 ? 0 : 1);

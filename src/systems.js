@@ -311,6 +311,10 @@
                 (byZone[f.zone] = byZone[f.zone] || []).push({ t, f });
         }
         const rng = w.rng.fork('naval');
+        // 每周战报：同一海区多对舰队交战合并成一条，且只有实际损失（四舍五入后）> 0 才记录。
+        // 旧实现每对舰队每周各写一条（快进时 500 条日志会被「海战（…）：损失 0 艘」刷满）。
+        const weeklyReport = w.hour % (24 * 7) === 0;
+        const zoneReport = {};
         for (const zid in byZone) {
             const list = byZone[zid];
             for (let i = 0; i < list.length; i++) {
@@ -318,8 +322,7 @@
                     const A = list[i], B = list[j];
                     if (!PSE.World.areAtWar(w, A.t, B.t))
                         continue;
-                    // 交战中：按战力比造成损失
-                    const ratio = A.f.ships / Math.max(1, A.f.ships + B.f.ships);
+                    // 交战中：按舰队规模造成损失
                     const lossesB = A.f.ships * 0.02 * (0.6 + rng.next01() * 0.8);
                     const lossesA = B.f.ships * 0.02 * (0.6 + rng.next01() * 0.8);
                     A.f.ships = Math.max(0, A.f.ships - lossesA);
@@ -327,12 +330,21 @@
                     const ca = w.countries[A.t], cb = w.countries[B.t];
                     const lossA = Navy.shipLosses(ca, lossesA, rng);
                     const lossB = Navy.shipLosses(cb, lossesB, rng);
-                    if (w.hour % (24 * 7) === 0) {
-                        PSE.log(w, '海战（' + (w.countries[A.t].name) + ' vs ' + (w.countries[B.t].name) + '）：损失 ' +
-                            (lossA + lossB).toFixed(0) + ' 艘', 'war', A.t);
-                    }
+                    if (!weeklyReport)
+                        continue;
+                    const lost = Math.round(lossA + lossB);
+                    if (lost <= 0)
+                        continue; // 0 损失不记录（刷屏主因）
+                    const rep = zoneReport[zid] || (zoneReport[zid] = { pairs: 0, loss: 0, tag: A.t });
+                    rep.pairs += 1;
+                    rep.loss += lost;
                 }
             }
+        }
+        for (const zid in zoneReport) {
+            const rep = zoneReport[zid];
+            const z = PSE.MapData.seaZones.find((x) => x.id === +zid);
+            PSE.log(w, '海区（' + (z ? z.name : zid) + '）：' + rep.pairs + ' 组舰队交战，损失 ' + rep.loss + ' 艘', 'war', rep.tag);
         }
         // 破交：袭击敌方海区 → 提高对方贸易风险
         for (const t in w.countries) {
