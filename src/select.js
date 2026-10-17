@@ -79,7 +79,7 @@
     catch (e) {
         return false;
     } }
-    function textWidth(sel, text) {
+    function textWidth(sel, text, fontEl) {
         try {
             const d = D();
             if (!d || !d.createElement)
@@ -92,7 +92,7 @@
                 return String(text).length * 12;
             let font = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
             try {
-                const cs = root.getComputedStyle ? root.getComputedStyle(sel) : null;
+                const cs = root.getComputedStyle ? root.getComputedStyle(fontEl || sel) : null;
                 if (cs) {
                     const size = cs.fontSize || '12px';
                     const family = cs.fontFamily || 'sans-serif';
@@ -108,17 +108,37 @@
             return String(text).length * 12;
         }
     }
-    /** 触发器宽度按最长选项自适应：文字宽 + 12px 余量 + 箭头/间距/内边距 */
+    /** 触发器宽度按最长选项自适应：文字宽 + 12px 余量 + 箭头/间距/内边距（按实际计算样式，兼容移动端字号/间距覆盖）；弹层宽度也按文字自适应 */
     function fitWidth(sel, rec) {
         const os = optionsOf(sel);
         let max = 0;
         for (let i = 0; i < os.length; i++)
-            max = Math.max(max, textWidth(sel, optionText(os[i])));
-        const w = Math.max(78, Math.ceil(max + 12 + 10 + 6 + 16)); // 余量 12 + 箭头 10 + 间距 6 + 内边距 16
+            max = Math.max(max, textWidth(sel, optionText(os[i]), rec.btn));
+        let extra = 12 + 10 + 6 + 16; // 兜底：余量 12 + 箭头 10 + 间距 6 + 内边距 16
+        try {
+            const cs = root.getComputedStyle ? root.getComputedStyle(rec.btn) : null;
+            if (cs) {
+                const px = (v) => { const n = parseFloat(v); return isFinite(n) ? n : 0; };
+                const pad = px(cs.paddingLeft) + px(cs.paddingRight) + px(cs.borderLeftWidth) + px(cs.borderRightWidth);
+                const gap = px(cs.columnGap) || px(cs.gap) || 6;
+                let arrowW = 10;
+                try {
+                    if (rec.arrow && rec.arrow.offsetWidth)
+                        arrowW = rec.arrow.offsetWidth;
+                }
+                catch (e) { }
+                extra = 12 + pad + gap + arrowW;
+            }
+        }
+        catch (e) { /* 测试桩没有 getComputedStyle */ }
+        const w = Math.max(78, Math.ceil(max + extra));
         try {
             rec.wrap.style.minWidth = w + 'px';
             rec.wrap.style.maxWidth = '100%';
             rec.btn.style.minWidth = w + 'px';
+            // 弹层行内文字区 = 弹层宽 - 行内边距 16 - 对勾 12 - 间距 6 - 弹层内边距 8 - 边框 2；再留 12 余量
+            if (rec.pop)
+                rec.pop.style.minWidth = Math.max(150, Math.ceil(max + 12 + 16 + 12 + 6 + 8 + 2)) + 'px';
         }
         catch (e) { /* 测试桩 */ }
     }
@@ -614,16 +634,25 @@
             out.push(optionText(os[i]));
         return out;
     };
-    /** 供 ui.ts 在外部改写选项后刷新触发器文字 */
-    SU.refresh = function (sel) { syncLabel(sel); };
+    /** 供 ui.ts 在外部改写选项后刷新触发器文字（选项变化时同时重算宽度） */
+    SU.refresh = function (sel) {
+        const rec = sel && parts ? parts.get(sel) : null;
+        if (rec)
+            fitWidth(sel, rec);
+        syncLabel(sel);
+    };
     SU.refreshAll = function () {
         const d = D();
         if (!d || !d.querySelectorAll)
             return;
         try {
             const list = Array.prototype.slice.call(d.querySelectorAll('select'));
-            for (let i = 0; i < list.length; i++)
+            for (let i = 0; i < list.length; i++) {
+                const rec = parts ? parts.get(list[i]) : null;
+                if (rec)
+                    fitWidth(list[i], rec);
                 syncLabel(list[i]);
+            }
         }
         catch (e) { }
     };
