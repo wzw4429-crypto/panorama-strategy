@@ -393,6 +393,9 @@
         const dfSel = document.getElementById('pickDifficulty');
         if (dfSel)
             dfSel.innerHTML = Object.keys(PSE.DIFFICULTY).map((k) => '<option value="' + k + '"' + (k === 'standard' ? ' selected' : '') + '>' + PSE.DIFFICULTY[k].name + '</option>').join('');
+        // 开局界面的原生 <select> 换成主题化下拉（原生系统弹层会盖住标题、裁切列表）
+        if (PSE.SelectUI)
+            PSE.SelectUI.enhance(document.getElementById('startBox'));
         bindInput();
         const q = new URLSearchParams(root.location ? root.location.search : '');
         const auto = q.get('auto');

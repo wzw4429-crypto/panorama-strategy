@@ -146,6 +146,12 @@
     function panelBusy(el) {
         if (panelPressed)
             return true;
+        // 主题化下拉弹层展开时也算「正在操作」：面板重建会把它关掉
+        try {
+            if (PSE.SelectUI && PSE.SelectUI.isOpen())
+                return true;
+        }
+        catch (e) { /* 无 select 组件 */ }
         try {
             const a = document.activeElement;
             if (a && a !== document.body && el && el.contains && el.contains(a)) {
@@ -187,6 +193,9 @@
         if (el.innerHTML !== h)
             el.innerHTML = h;
         UI.bindPanel(g);
+        // 面板 HTML 里的原生 <select> 换成主题化下拉（PSE.SelectUI，见 src/select.ts）
+        if (PSE.SelectUI)
+            PSE.SelectUI.enhance(el);
     };
     /**
      * 定时刷新（主循环每 350ms）：内容没变就完全不动 DOM；玩家正在操作面板控件时跳过。
@@ -1369,8 +1378,7 @@
         // —— 装备设计器 / 军贸 ——
         el.querySelectorAll('[data-design]').forEach((sel) => {
             const handler = () => {
-                const [k, v] = sel.dataset.design.split(':');
-                UI.setDesign(k, v);
+                UI.applyDesignChange(sel); // 下拉读 sel.value，按钮解析 data-design="role:tank"
                 UI.renderPanel(g);
             };
             if (sel.tagName === 'SELECT')
@@ -1479,14 +1487,38 @@
     };
     // 设计器状态（供 UI 与 bindPanel 共享）
     UI.getDesign = function () { return Object.assign({}, design); };
+    /**
+     * 应用一次设计器控件变更（bindPanel 的 [data-design] 处理器共用；dom-smoke 直接调用做回归）：
+     * - <select> 上 data-design="chassis"（无冒号）→ 必须读 sel.value
+     * - <button> 上 data-design="role:tank" → 解析冒号后的值
+     * 之前两者都用 split(':')，下拉的 k 正确但 v=undefined，导致四个下拉「选了没用」。
+     */
+    UI.applyDesignChange = function (sel) {
+        if (!sel || !sel.dataset)
+            return false;
+        const d = sel.dataset.design;
+        if (d == null || d === '')
+            return false;
+        if (String(sel.tagName).toUpperCase() === 'SELECT')
+            UI.setDesign(d, sel.value);
+        else {
+            const [k, v] = String(d).split(':');
+            UI.setDesign(k, v);
+        }
+        return true;
+    };
     UI.setDesign = function (k, v) {
         if (!design)
             design = {};
+        if (v == null || k == null)
+            return; // 防御：没拿到值就不要把已有选择改成 undefined
+        k = String(k);
         if (k === 'role')
             design.role = v;
         else if (k.indexOf(':') >= 0) {
             const [kk, vv] = k.split(':');
-            design[kk] = vv;
+            if (vv != null)
+                design[kk] = vv;
         }
         else
             design[k] = v;

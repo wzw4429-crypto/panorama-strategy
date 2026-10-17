@@ -21,21 +21,57 @@ const ctxStub = new Proxy({}, {
 });
 
 const domReady = [];
+function findSelects(root) {
+  const out = [];
+  (function walk(n) {
+    for (const c of (n.children || [])) {
+      if (String(c.tagName || '').toUpperCase() === 'SELECT') out.push(c);
+      walk(c);
+    }
+  })(root);
+  return out;
+}
 function makeEl(id) {
   const el = {
     id, children: [], dataset: {}, style: {}, value: '', checked: false,
-    textContent: '', innerHTML: '', tagName: 'DIV',
+    textContent: '', innerHTML: '', tagName: String(id || 'div').toUpperCase(),
+    parentNode: null, disabled: false, options: [], selectedIndex: -1,
+    _attr: {}, _ev: {},
     classList: {
       _s: new Set(),
       add(c) { this._s.add(c); }, remove(c) { this._s.delete(c); },
       contains(c) { return this._s.has(c); },
       toggle(c, f) { const on = f === undefined ? !this._s.has(c) : !!f; on ? this._s.add(c) : this._s.delete(c); return on; },
     },
-    appendChild(c) { this.children.push(c); return c; },
-    remove() {}, addEventListener() {}, removeEventListener() {},
-    querySelector() { return makeEl('q'); }, querySelectorAll() { return []; },
+    appendChild(c) { if (c) c.parentNode = this; this.children.push(c); return c; },
+    insertBefore(c, ref) {
+      if (c) c.parentNode = this;
+      const i = this.children.indexOf(ref);
+      if (i >= 0) this.children.splice(i, 0, c); else this.children.push(c);
+      return c;
+    },
+    removeChild(c) { const i = this.children.indexOf(c); if (i >= 0) this.children.splice(i, 1); return c; },
+    remove() {},
+    addEventListener(t, fn) { (this._ev[t] = this._ev[t] || []).push(fn); },
+    removeEventListener(t, fn) { const a = this._ev[t] || []; const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); },
+    dispatchEvent(ev) {
+      if (!ev) return true;
+      if (!ev.type) ev.type = 'event';
+      if (!ev.target) ev.target = this;
+      for (const fn of (this._ev[ev.type] || []).slice()) fn(ev);
+      const on = this['on' + ev.type];
+      if (typeof on === 'function') on(ev);
+      return true;
+    },
+    hasAttribute(k) { return Object.prototype.hasOwnProperty.call(this._attr, k); },
+    getAttribute(k) { return this.hasAttribute(k) ? this._attr[k] : null; },
+    setAttribute(k, v) { this._attr[k] = String(v); },
+    removeAttribute(k) { delete this._attr[k]; },
+    querySelector() { return makeEl('q'); },
+    querySelectorAll(s) { return s === 'select' ? findSelects(this) : []; },
     getBoundingClientRect() { return { left: 0, top: 0, width: 1080, height: 792 }; },
-    click() {}, getContext() { return ctxStub; }, focus() {},
+    click() { this.dispatchEvent({ type: 'click', target: this }); },
+    getContext() { return ctxStub; }, focus() {}, blur() {},
   };
   return el;
 }
@@ -54,6 +90,13 @@ global.requestAnimationFrame = () => 1;
 global.addEventListener = (t, fn) => { if (t === 'DOMContentLoaded') domReady.push(fn); };
 global.Blob = function () {};
 global.URL = { createObjectURL: () => 'blob:x' };
+// 最小 Event：主题化下拉选中后会派发 change，让现有 onchange / addEventListener('change') 都能跑到
+global.Event = function (type, opts) {
+  this.type = type; this.bubbles = !!(opts && opts.bubbles);
+  this.defaultPrevented = false; this.target = null;
+};
+global.Event.prototype.preventDefault = function () { this.defaultPrevented = true; };
+global.Event.prototype.stopPropagation = function () {};
 
 let failures = 0, checks = 0;
 function ok(cond, msg, extra) {
@@ -69,7 +112,7 @@ function step(name, fn) {
 // ---------- 加载浏览器脚本 ----------
 const SRC = path.join(__dirname, '..', 'src');
 require(path.join(__dirname, '..', 'data', 'map-generated.js'));
-for (const f of ['core.js', 'platform.js', 'data-rules.js', 'data-map.js', 'world.js', 'sim.js', 'ai.js', 'systems.js', 'systems2.js', 'save.js', 'render.js', 'ui.js', 'main.js']) {
+for (const f of ['core.js', 'platform.js', 'data-rules.js', 'data-map.js', 'world.js', 'sim.js', 'ai.js', 'systems.js', 'systems2.js', 'save.js', 'render.js', 'select.js', 'ui.js', 'main.js']) {
   require(path.join(SRC, f));
 }
 const PSE = globalThis.PSE;
@@ -557,6 +600,96 @@ step('平台适配层：浏览器退回原行为，壳契约可注入（桌面�
     globalThis.PSE_HOST = { kind: 'webview2', desktop: false };
     if (PSE.Platform.isDesktop()) throw new Error('desktop:false 的宿主不应判定为桌面');
   } finally { delete globalThis.PSE_HOST; }
+});
+
+step('主题化下拉：触发器 + 页面内弹层 + 选中派发 change（不再弹原生系统列表）', () => {
+  const fs = require('fs');
+  const SU = PSE.SelectUI;
+  if (!SU) throw new Error('PSE.SelectUI 未加载（index.html 需在 ui.js 之前加载 select.js）');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const isel = html.indexOf('src/select.js'), iui = html.indexOf('src/ui.js');
+  if (isel < 0) throw new Error('index.html 未加载 select.js');
+  if (!(isel < iui)) throw new Error('select.js 应在 ui.js 之前加载');
+  if (html.indexOf('.pselPop') < 0 || html.indexOf('.pselNative') < 0) throw new Error('index.html 缺少主题化下拉样式');
+
+  const host = document.createElement('div');
+  const sel = document.createElement('select');
+  sel.options = [
+    { textContent: '德国', value: 'GER' },
+    { textContent: '捷克斯洛伐克', value: 'CZE' },
+    { textContent: '意大利', value: 'ITA' },
+  ];
+  sel.selectedIndex = 0; sel.value = 'GER';
+  host.appendChild(sel);
+  const n = SU.enhance(host);
+  ok(n === 1, '渲染后统一入口增强 1 个 select');
+  const st = SU.state(sel);
+  ok(st.enhanced && !!st.trigger && !!st.popup, '触发器与弹层都已创建');
+  ok(sel.classList.contains('pselNative') && sel.getAttribute('data-psel') === '1',
+    '原生 select 已视觉隐藏（不会再弹系统列表），value/change 语义保留');
+  ok(st.label === '德国', '触发器显示当前选项');
+  const minW = parseInt(st.trigger.style.minWidth || '0', 10);
+  ok(minW >= 78, '触发器宽度按最长选项自适应（minWidth ' + minW + 'px，长国名不裁切）');
+  st.trigger.dispatchEvent(new Event('click'));
+  const st2 = SU.state(sel);
+  ok(st2.open === true && st2.popup.classList.contains('open'), '点击触发器打开页面内自定义弹层（非原生 UI）');
+  ok(st2.trigger.getAttribute('aria-expanded') === 'true' && st2.popup.getAttribute('role') === 'listbox',
+    'aria-expanded / role=listbox 正确');
+  ok(st2.popup.children.length === 3, '弹层展开时重读 options（3 项全在，不缓存死选项）');
+  let changed = 0;
+  sel.addEventListener('change', () => { changed++; });
+  st2.popup.children[1].dispatchEvent(new Event('click'));
+  ok(sel.value === 'CZE' && SU.state(sel).label === '捷克斯洛伐克', '选中项 → select.value 更新且触发器文字同步');
+  ok(changed === 1, 'change 事件照旧派发（面板原有 onchange 逻辑不用改）');
+  ok(SU.isOpen() === false && !st2.popup.classList.contains('open'), '选中后弹层关闭');
+});
+
+step('装备设计器 5 个下拉：设 value + 派发 change → 真的生效（[data-design] 丢值回归）', () => {
+  const UI = PSE.UI;
+  const parts = PSE.EQ_PARTS;
+  const previewOf = () => PSE.deriveEquipment(Object.assign({}, UI.getDesign(), { name: '预览', id: 'custom_preview' }));
+  const stateOf = () => JSON.stringify(previewOf());
+  const selectFor = (k, v) => {
+    const sel = document.createElement('select');
+    sel.dataset.design = k;
+    sel.value = v;
+    sel.options = Object.keys(parts[k]).map((o) => ({ textContent: parts[k][o].name, value: o }));
+    sel.selectedIndex = Object.keys(parts[k]).indexOf(v);
+    return sel;
+  };
+  const checkKey = (k) => {
+    const opts = Object.keys(parts[k]);
+    const val = opts[opts.length - 1];
+    const before = stateOf();
+    const sel = selectFor(k, val);
+    ok(UI.applyDesignChange(sel) === true && UI.getDesign()[k] === val,
+      '下拉 ' + k + ' 选 ' + val + ' → 设计状态生效（旧版变 undefined）');
+    UI.renderPanel(PSE.Game);
+    const h = document.getElementById('panelBody').innerHTML;
+    const i = h.indexOf('<select data-design="' + k + '">');
+    const seg = i >= 0 ? h.slice(i, h.indexOf('</select>', i)) : '';
+    ok(seg.indexOf('value="' + val + '" selected') >= 0, '重绘后 ' + k + ' 仍选中 ' + val + '（不再回退第一项）');
+    ok(stateOf() !== before, '切换 ' + k + ' 后预览数值（成本/火力等）随之变化');
+  };
+
+  UI.setDesign('role', 'tank');
+  UI.setDesign('chassis', 'medium'); UI.setDesign('gun', 'medium');
+  UI.setDesign('armor', 'medium'); UI.setDesign('engine', 'petrol');
+  UI.setTab('equipment', PSE.Game);
+  const html0 = document.getElementById('panelBody').innerHTML;
+  for (const k of ['chassis', 'gun', 'armor', 'engine']) {
+    if (html0.indexOf('data-design="' + k + '"') < 0) throw new Error('坦克设计器缺少下拉 ' + k);
+  }
+  for (const k of ['chassis', 'gun', 'armor', 'engine']) checkKey(k);
+  // 飞机形态走按钮路径（data-design="role:air"，值在冒号后）
+  const btn = document.createElement('button');
+  btn.dataset.design = 'role:air';
+  ok(UI.applyDesignChange(btn) === true && UI.getDesign().role === 'air', '按钮 data-design="role:air" → 切到飞机形态');
+  UI.renderPanel(PSE.Game);
+  if (document.getElementById('panelBody').innerHTML.indexOf('data-design="airframe"') < 0) throw new Error('飞机设计器缺少 airframe 下拉');
+  checkKey('airframe');
+  UI.setDesign('role', 'tank');
+  UI.setTab('equipment', PSE.Game);
 });
 
 console.log('\n运行结果：' + PSE.Time.format(PSE.Game.world.hour) +

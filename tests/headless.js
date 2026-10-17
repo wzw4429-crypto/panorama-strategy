@@ -5,7 +5,7 @@
 'use strict';
 const path = require('path');
 const SRC = path.join(__dirname, '..', 'src');
-const FILES = ['core.js', 'platform.js', 'data-rules.js', 'data-map.js', 'world.js', 'sim.js', 'ai.js', 'systems.js', 'systems2.js', 'save.js'];
+const FILES = ['core.js', 'platform.js', 'data-rules.js', 'data-map.js', 'world.js', 'sim.js', 'ai.js', 'systems.js', 'systems2.js', 'save.js', 'select.js'];
 require(path.join(__dirname, '..', 'data', 'map-generated.js'));
 for (const f of FILES) require(path.join(SRC, f));
 const PSE = globalThis.PSE;
@@ -584,6 +584,26 @@ section('13. 操作反馈文案（建造排队 / 科研选型 原因区分）');
   const rBusy = PSE.Cmd.setResearchEx(w, 1, free);
   ok(!rBusy.ok && rBusy.msg.indexOf('已在另一个科研槽') >= 0, '同一科技已在别槽 → 准确原因：' + rBusy.msg);
   ok(PSE.Cmd.setResearch(w, 1, free) === false, '布尔 API setResearch 行为不变（失败返回 false）');
+})();
+
+// ============================================================
+section('14. 主题化下拉组件（无 DOM 环境降级 + 选项/状态 API）');
+(function () {
+  const SU = PSE.SelectUI;
+  ok(SU && typeof SU.enhance === 'function' && typeof SU.enhanceAll === 'function',
+    'SelectUI 导出统一入口 enhance / enhanceAll（ui.ts 渲染后自动调用）');
+  ok(SU.enhance(null) === 0, '无 DOM 环境（headless）下增强安全返回 0，不抛异常');
+  const fake = {
+    options: [{ textContent: '德国', value: 'GER' }, { text: '捷克斯洛伐克', value: 'CZE' }],
+    value: 'GER', selectedIndex: 0,
+  };
+  const texts = SU.texts(fake);
+  ok(texts.length === 2 && texts[0] === '德国' && texts[1] === '捷克斯洛伐克',
+    'texts() 读取当前 options 文本（弹层打开时重读，不缓存死选项）');
+  ok(SU.state(fake).enhanced === false, 'state() 对未增强的 select 返回 enhanced:false（安全）');
+  ok(SU.isOpen() === false && SU.count() === 0, '初始未展开、增强计数为 0');
+  SU.close();
+  ok(true, 'close() 在未展开时安全无操作');
 })();
 
 // ============================================================

@@ -154,19 +154,20 @@ panorama/
 │   ├── systems2.ts         煤炭、决议与民族精神、将领/集团军/前线计划、学说精通度、阵营、外交行动、和平会议、自制度、难度、剧本、控制台、MOD
 │   ├── save.ts             存档（经 platform.ts 落到浏览器 localStorage / 桌面壳 / 内存）+ 铁人自动存档
 │   ├── render.ts           Canvas 多边形渲染 + 7 图层（补给管网 / 战线折线 / 海区航线 / 空域）
-│   ├── ui.ts               顶栏、10 个面板、省份详情、事件与和平弹窗、日志、toast
+│   ├── ui.ts               顶栏、10 个面板、省份详情、事件与和平弹窗、日志、toast、面板下拉接入
+│   ├── select.ts          主题化下拉组件 PSE.SelectUI：原生 select 增强为页面内弹层（开局国家/科研/生产/贸易/设计器）
 │   ├── platform.ts         平台适配层：web / PWA / Tauri / Electron 接入点（统一 store 与文件导出）
 │   └── main.ts             主循环、速度控制、摄像机输入、快捷键、控制台、自动存档
 └── tests/
-    ├── headless.js         13 段回归 157 项（地图/世界/3 年长跑/确定性/存档/战斗校准/扩展系统/剧本难度/集团军/平台层/地图拾取/操作反馈）
-    ├── dom-smoke.js        最小 DOM 桩 28 项（渲染/摄像机/10 面板/设计器/和平会议/控制台/平台层/提示与弹窗）
+    ├── headless.js         14 段回归 163 项（地图/世界/3 年长跑/确定性/存档/战斗校准/扩展系统/剧本难度/集团军/平台层/地图拾取/操作反馈/主题化下拉）
+    ├── dom-smoke.js        最小 DOM 桩 57 项（渲染/摄像机/10 面板/下拉组件/设计器/和平会议/控制台/平台层/提示与弹窗/移动端布局）
     └── probe*.js           诊断脚本（战斗链路、战争节奏、组织度、海洋、世界规模）
 ```
 
 **运行测试**
 ```powershell
-node --max-old-space-size=3072 tests/headless.js 3    # 157 项断言
-node --max-old-space-size=3072 tests/dom-smoke.js     # 28 项断言
+node --max-old-space-size=3072 tests/headless.js 3    # 163 项断言
+node --max-old-space-size=3072 tests/dom-smoke.js     # 57 项断言
 node tools/build-map.js                               # 重新生成地图（约 1 分钟）
 ```
 

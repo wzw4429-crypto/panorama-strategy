@@ -42,6 +42,34 @@ window.addEventListener('error', function (e) {
   select option { background: #1a222c; color: var(--text); }
   button, select { transition: background .12s, border-color .12s; }
   button:focus-visible, select:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+  /* ===== 主题化下拉（PSE.SelectUI）=====
+     原生 <select> 只保留数据/事件语义（.value、change、表单提交），外观与交互换成下面这套：
+     触发器 + 页面内自定义弹层（深色、可滚动、贴视口底部自动上翻），不再弹系统列表。 */
+  .psel { position: relative; display: inline-flex; align-items: center; vertical-align: middle; max-width: 100%; }
+  .pselNative { position: absolute !important; left: 0; top: 0; width: 1px; height: 1px; margin: 0;
+    padding: 0; border: 0; opacity: 0; pointer-events: none !important; }
+  .pselBtn { display: inline-flex; align-items: center; gap: 6px; min-height: 24px; max-width: 100%;
+    padding: 2px 8px; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px;
+    color: var(--text); font-size: 12px; line-height: 1.4; cursor: pointer; text-align: left; }
+  .pselBtn:hover, .pselBtn.open { border-color: var(--accent); background: #27313d; }
+  .pselBtn:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+  .pselBtn:disabled { opacity: .45; cursor: not-allowed; }
+  .pselLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pselArrow { flex: 0 0 auto; font-size: 10px; color: var(--muted); transition: transform .12s; }
+  .pselBtn.open .pselArrow { transform: rotate(180deg); color: var(--accent); }
+  .pselLayer { position: fixed; inset: 0; z-index: 330; pointer-events: none; }
+  .pselPop { position: absolute; z-index: 331; pointer-events: auto; background: #171e27;
+    border: 1px solid #3d4b5c; border-radius: 6px; box-shadow: 0 10px 30px rgba(0,0,0,.6);
+    padding: 4px; overflow-y: auto; overflow-x: hidden; font-size: 12px; }
+  .pselPop.hidden { display: none !important; }
+  .pselOpt { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 4px;
+    color: var(--text); cursor: pointer; white-space: nowrap; }
+  .pselOpt.hl { background: var(--accent); color: #1a1a1a; font-weight: 700; }
+  .pselOpt.sel .pselTick { opacity: 1; }
+  .pselTick { flex: 0 0 auto; width: 12px; color: var(--accent); opacity: 0; }
+  .pselOpt.hl .pselTick { color: #1a1a1a; }
+  .pselOpt.dis { opacity: .4; cursor: not-allowed; }
+  .pselOptText { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb { background: #2c3a4a; border-radius: 5px; border: 2px solid var(--panel); }
   ::-webkit-scrollbar-thumb:hover { background: #3d4b5c; }
@@ -83,6 +111,10 @@ window.addEventListener('error', function (e) {
     .mini { min-height: 28px; padding: 3px 9px; }
     #tabs button { min-height: 38px; padding: 6px 10px; }
     #top .cell { padding-top: 1px; padding-bottom: 1px; }
+    /* 触屏下拉：触发器/弹层行高加大，方便手指点选 */
+    .pselBtn { min-height: 30px; padding: 4px 9px; font-size: 13px; }
+    .pselPop { font-size: 13px; }
+    .pselOpt { padding: 8px 10px; }
   }
   /* —— 横屏矮屏（如红米 K80 横屏 ~1067×480 CSS px）：极限压缩顶部三行，地图最大化 —— */
   @media (max-height: 560px) and (orientation: landscape) {
@@ -115,6 +147,10 @@ window.addEventListener('error', function (e) {
     #startBox h1 { font-size: 19px; }
     #eventBox, #peaceBox { max-width: 92vw; max-height: 88vh; overflow: auto; padding: 12px 16px; }
     #gameOverBox { max-width: 92vw; padding: 16px 20px; }
+  }
+  /* 横屏矮屏：下拉弹层最多占视口一半，避免盖住整屏 */
+  @media (max-height: 560px) and (orientation: landscape) {
+    .pselPop { max-height: 46vh !important; }
   }
   /* 触屏横屏（窄一点也算）：提示文字同样隐藏 */
   @media (pointer: coarse) and (orientation: landscape) {
@@ -389,6 +425,7 @@ window.addEventListener('error', function (e) {
 <script src="src/systems2.js"></script>
 <script src="src/save.js"></script>
 <script src="src/render.js"></script>
+<script src="src/select.js"></script>
 <script src="src/ui.js"></script>
 <script src="src/main.js"></script>
 <button id="fsExit" title="退出沉浸模式（F）">✕ 退出全屏</button>

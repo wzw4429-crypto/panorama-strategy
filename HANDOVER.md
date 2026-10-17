@@ -2,7 +2,7 @@
 
 > 交接时间：2026-10-15　｜　仓库：`D:\dsh\panorama`（git，分支 `main`）
 > 远端：https://github.com/wzw4429-crypto/panorama-strategy
-> 当前健康度：两套测试全绿（**157/157 + 28/28**）；已修 P0 地图红色横带与空白帧（§4）、P1 手机横屏排版（§4）、悬停提示「补给 NaN%」与事件弹窗点击偶发失效（§4）、生产面板闪白与新增产线口径（§4）、建造/科研/情报局的操作反馈文案（§4）；（§5）另按用户要求补上「师团点名 / 按名字组合 / 编组」「集团军自定义：数量/名称/将领/编成」「国策 / 科研等面板全屏观看使用」；并已落地**平台适配层** `src/platform.ts`（web 退回原行为，桌面壳注入 `window.PSE_HOST` 即可接管存档/文件对话框，见 §3/§6）。
+> 当前健康度：两套测试全绿（**163/163 + 57/57**）；已修 P0 地图红色横带与空白帧（§4）、P1 手机横屏排版（§4）、悬停提示「补给 NaN%」与事件弹窗点击偶发失效（§4）、生产面板闪白与新增产线口径（§4）、建造/科研/情报局的操作反馈文案（§4）、开局「选择国家」原生下拉被系统弹层截断/闪白（改为全站主题化下拉组件，§4）；（§5）另按用户要求补上「师团点名 / 按名字组合 / 编组」「集团军自定义：数量/名称/将领/编成」「国策 / 科研等面板全屏观看使用」；并已落地**平台适配层** `src/platform.ts`（web 退回原行为，桌面壳注入 `window.PSE_HOST` 即可接管存档/文件对话框，见 §3/§6）。
 
 ---
 
@@ -25,8 +25,8 @@ node server.js 8787           # node 不在 PATH，见 §6 绝对路径
 # 浏览器打开 http://127.0.0.1:8787/   或直接双击 index.html
 
 # 2) 跑测试（改任何逻辑后必跑）
-node --max-old-space-size=3072 tests/headless.js 3     # 157 项：地图/世界/3年长跑/确定性/存档/战斗/扩展系统/剧本/生产口径/集团军/平台层/地图拾取/操作反馈
-node tests/dom-smoke.js                                # 28 项：DOM 桩渲染 + 全部面板 + 面板刷新/全屏回归 + 平台层 + 提示与弹窗
+node --max-old-space-size=3072 tests/headless.js 3     # 163 项：地图/世界/3年长跑/确定性/存档/战斗/扩展系统/剧本/生产口径/集团军/平台层/地图拾取/操作反馈/主题化下拉
+node tests/dom-smoke.js                                # 57 项：DOM 桩渲染 + 全部面板 + 面板刷新/全屏回归 + 下拉组件 + 设计器 + 平台层 + 提示与弹窗 + 移动端布局
 
 # 3) 改 TS 后必须重新编译（浏览器加载的是 src/*.js）
 npm run build      # = tsc -p tsconfig.json，就地 emit src/*.js
@@ -59,6 +59,7 @@ panorama/
 │   ├── platform.ts       平台适配层：kind()/isDesktop()/store()/download()/pickText()/notify()/fullscreen()（web·PWA·桌面壳接入点）
 │   ├── render.ts         Canvas 渲染 + 7 图层（补给管网/战线折线/海区航线/空域/抵抗/地形/政治）
 │   ├── ui.ts             顶栏、10 面板、省份详情、事件与和平弹窗、日志、toast、师团点名/编组选择
+│   ├── select.ts         主题化下拉组件 PSE.SelectUI：原生 select 增强为页面内弹层（开局国家/科研/生产/贸易/设计器）
 │   └── main.ts           主循环(rAF)、速度、摄像机输入、快捷键、控制台、自动存档
 ├── data/
 │   ├── countries-110m.json  Natural Earth 110m TopoJSON
@@ -73,7 +74,7 @@ panorama/
 关键不变量（改代码时别破坏）：
 - 状态纯 JSON 可序列化；**省 id = `w.provinces` 数组下标**
 - 确定性：禁止 `Math.random` / `Date.now` 参与世界演化（用 `PSE.rng.fork(salt)`），同种子双跑 `stateHash` 必须一致
-- 加载顺序：core → platform → data-rules → map-generated → data-map → world → sim → ai → systems → systems2 → save → render → ui → main
+- 加载顺序：core → platform → data-rules → map-generated → data-map → world → sim → ai → systems → systems2 → save → render → select → ui → main
 - 渲染投影是**等距圆柱（plate carrée）**：`x=(lon-lonMin)/(lonMax-lonMin)`、`y=(latMax-lat)/(latMax-latMin)`，只此一处（`data-map.ts`），render 一律走 `MD.project/unproject`
 
 **平台适配层契约（`src/platform.ts`，桌面壳/PWA 接入点）**
@@ -193,6 +194,22 @@ K80 横屏（1067×480）下工具行按钮被换行挤压，"拖动平移·滚�
 - `tests/headless.js` §12（7 项）：静态对象无 `supply`/`cityVp`、`provinceAt` 返回 `w.provinces[id]` 同一对象、深海返回 null、世界未建立时退回静态对象；`tests/dom-smoke.js` +2 步：tooltip 纯函数（无 NaN、有补给百分比/胜利点/军工厂/驻军）、事件与和平弹窗 8 次刷新 0 重建且关闭重开必重建。
 - 真 Chrome（CDP，`?auto=GER&speed=0&days=30&zoom=1`）：悬停柏林 → `柏林（森林）控制：德国｜补给 100% 驻军 2 个师 胜利点 50｜港口｜军工厂 1`（截图 `tests/bugfix_tooltip.png`）；`#eventOptions` 2.6s 重建 **0 次**（旧版 7 次）；CDP `Input.dispatchMouseEvent` 真实物理连点 **10/10 生效**；0 console 异常。
 
+### P1 · 开局「选择国家」原生下拉被系统弹层截断 / 闪白 + 全站下拉主题化（**已修复**）
+
+用户实测：开局界面「选择国家」点开是**系统原生下拉**，在缩放/窄屏/全屏下被浏览器/系统渲染成不完整列表，甚至整块刷白；要求换成与游戏一致的主题化下拉。
+
+**根因**：原生 `<select>` 的弹出层由浏览器/系统绘制，样式完全不可控（`<option>` 不能带样式、列表高度与滚动由系统决定；Chrome 在部分缩放/fullscreen 下会先清掉系统层再重绘，看起来就是"闪白"）。
+
+**修复**（新文件 `src/select.ts` → `PSE.SelectUI`；`index.html` 里 `src/select.js` 在 `ui.js` 之前加载）：
+- `enhance(select)`：**保留原生 `<select>` 在 DOM 里**（`value`/`change` 语义不变，面板代码零改动），只把它视觉隐藏（1px、opacity 0、`pointer-events:none`），旁边插入同尺寸主题化按钮（当前值 + ▾），点击/Enter/Space 打开页面内弹层；弹层挂在 body 上的 `.pselLayer`（position:fixed、z-index 330，不受面板 `overflow` 裁切），按钮下方定位、空间不够自动翻到上方，宽度按最长选项自适应，`max-height = min(280, 视口x0.6)`，超出滚动。
+- 选项行是普通 DOM：hover 主题色高亮、键盘 ↑↓/Home/End/Enter/Esc/首字母跳转、点击外部关闭、滚动跟随；选中后写回原生 select 并派发 `change`（含 InputEvent），`UI.renderPanel` 的 350ms tick 重建后用 `refresh(sel)` 重新同步标签；`SelectUI 打开时 UI.panelBusy()` 返回 true，面板重建挂起，下拉不会被刷掉。
+- 移动端：`@media (pointer:coarse)` 选项行高 ≥34px；横屏弹层 `max-height:46vh`；窄屏不发生横向溢出。
+- 接入点：`UI.renderPanel()` 结尾 `PSE.SelectUI.enhance(panelBody)`；开局界面填完 国家/剧本/难度 后 `enhance(startBox)`；已增强的 select 打 `data-psel=1` 标记，`enhance` 幂等。
+
+**顺带修复（Chief 实测发现）**：装备设计器 5 个下拉选了没反应——`[data-design]` 原代码对 `sel.dataset.design` 做 `split(':')`，而 select 上写的是 `data-design="chassis"`（无冒号）→ key=undefined → `UI.setDesign(undefined)` 直接 return。现在 select 用 `data-design="<key>"`（值即新选项）也支持，其他元素保持 `"<key>:<value>"`；`UI.setDesign` 加 key 空值守卫。
+
+**验证**：`tests/headless.js` §14（6 项：enhance 保留原生 select、选项同步、写回 value+change、disabled 跳过、refresh 标签、幂等），**163/163**；`tests/dom-smoke.js` +2 步（增强结构 `.psel`、状态/文案 API），**57/57**。真 Chrome CDP（临时脚本已删；1584x905 / 390x844 / 844x390 三种视口）**43/43 PASS**：国家下拉 58 项、弹层 280px 内滚动到最后一项、真实 hover 主题色 `rgb(255,210,74)`、点选最后一项（蒙古）生效并派发 change、Esc/外部点击关闭、开始游戏流程正常、地图非空白；科研/生产/产线切换 下拉真实选择生效且 tick 后保持；设计器 chassis/gun/armor/engine/airframe 5 个下拉真实选择 → `getDesign()` 生效、预览数值变化；竖屏无横向溢出、横屏弹层 ≤46vh；0 console 错误。截图：`tests/sel_start_desktop_open.png`、`tests/sel_start_portrait_open.png`、`tests/sel_start_landscape_open.png`、`tests/sel_panel_research.png`、`tests/sel_panel_prod.png`、`tests/sel_designer.png`。
+
 ### P2 · 操作反馈缺失 / 误导文案（**已修复**）
 
 用户实测反馈三处「点了没动静 / 提示不对」：
@@ -214,7 +231,7 @@ K80 横屏（1067×480）下工具行按钮被换行挤压，"拖动平移·滚�
 - ~~`package.json` 的 `description` 是乱码~~ → **已复查：文件本身没有问题**（`description` 解码后是「全景式历史战略模拟引擎（1936-1950）—— Web/Android 原型」，码点正确、无 U+FFFD；43 个文本文件全量扫描均合法 UTF-8）。见下一条。
 - PowerShell 读取 UTF-8 文件（含 `.gitignore`、workflow）会显示乱码——**只是显示问题**，文件本身正常，不要"顺手重写"
 - `tests/` 取证工具：**保留并入库** `rowprofile.py`（行剖面）＋`bandlat.py`（横带定位，画布顶探测的"面板色误判"已收紧判据）；一次性脚本（`probe9/10/12-15.js`、`forensics.py`、`pngsample.py`）与 `apk_check/`、Chrome 临时 profile、`__pycache__` 已清理；`.gitignore` 新增 `tests/.chrome-*/` 与 `__pycache__/`
-- ~~README 的功能对照表随 UI 演进可能略有出入~~ → **上一轮已核对更新**（操作表加面板全屏、工业表加"新增产线"、指挥表重写"集团军"、陆军表加"师团点名与编组"、工程结构加 `platform.ts`、新增"平台适配层"小节）；测试数字随基线同步（现 157/28）
+- ~~README 的功能对照表随 UI 演进可能略有出入~~ → **上一轮已核对更新**（操作表加面板全屏、工业表加"新增产线"、指挥表重写"集团军"、陆军表加"师团点名与编组"、工程结构加 `platform.ts`、新增"平台适配层"小节）；测试数字随基线同步（现 163/57）
 
 ---
 
@@ -223,7 +240,7 @@ K80 横屏（1067×480）下工具行按钮被换行挤压，"拖动平移·滚�
 | 要求 | 出处 | 状态 |
 |---|---|---|
 | 修到"没有任何一点 bug"再推送 | m01338 | P0/P1 + 本轮三件事已修并本地提交（`d51d3cc` + `0cee85a` + `851312d` + `8dcd51d` + 本次），待用户确认后推送 |
-| 每次修完自己跑测试并全面复查代码 | m01338 | 持续执行中（现 157/157 + 28/28） |
+| 每次修完自己跑测试并全面复查代码 | m01338 | 持续执行中（现 163/163 + 57/57） |
 | 交接文档 | m01471 | **本文档** |
 | 自主推进、不要频繁确认 | 会话早期多轮 | 持续遵守 |
 | 把聚在一地的师拆开、给每个师起名字、按名字组合 | 用户（本轮） | **已实现**：师团名带兵种（如 德国·第3装甲师）；「陆军」面板逐个师点选（拆堆叠）、按名字组合选中、「存为编组」一键召回（随存档持久化） |
@@ -231,6 +248,8 @@ K80 横屏（1067×480）下工具行按钮被换行挤压，"拖动平移·滚�
 | 点开生产线的下拉「闪一下变白」 | 用户（本轮） | **已修复**：面板每 350ms 整块 `innerHTML` 重建（见 §4），改为「内容签名不动就不重建 + 正在交互（焦点在 select/input）时挂起；重绘后按 id 恢复下拉选择/焦点」，并给聊天/日志加 `willChange: transform` 减重排 |
 | 有空的军工工厂，点「新增产线」却说「没有空闲」 | 用户（本轮） | **已修复**：面板显示的 `空闲` 与命令 `Prod.freeMil` 不是同一口径（面板 `free = mil - used` 只减了「已分配产线数」，命令还要求有空闲工厂且选中项是陆/空军装备；选到舰船/未知装备会直接报没有空闲）。现在统一用 `PSE.Cmd.prodFreeMil()`，提示区分「占用中」与「真没有工厂」，并在空闲为 0 时给出「怎么才有空闲」的指引 |
 | 国策 / 科研等面板要能全屏观看、使用 | 用户（本轮） | **已实现**：面板右上「⛶ 全屏」/ `Shift+F` / URL `&panelfs=1`；全屏后 `#side` 铺满窗口，顶部条可一键切换 政治/生产/装备/科研/国策/陆军/海军/空军/谍报/外交/后勤/战报，国策树/科研列表按窗口高度放大，`Esc` 退出；地图全屏仍是 `F` |
+| 开局「选择国家」下拉显示不全、点开闪白 | 用户（本轮） | **已修复**：全站改为主题化下拉组件 `PSE.SelectUI`（原生 select 保留 value/change 语义，页面内弹层，见 §4） |
+| 装备设计器的下拉选了不生效 | Chief 实测（本轮） | **已修复**：`[data-design]` 绑定不再对无冒号的 key 做 `split(':')`，select 上写 `data-design="chassis"` 即可（见 §4） |
 
 推送流程（remote 已去掉 token）：
 ```powershell
@@ -301,7 +320,7 @@ powershell -ExecutionPolicy Bypass -File desktop\verify.ps1 -FreshUserData  # 9 
 ## 9. 交接后建议的第一步
 
 1. `node server.js 8787` + 浏览器打开，确认可玩（当前服务在本机 8787 已起）
-2. 跑两套测试，确认基线仍为 **157/157 + 28/28**（含 §4 P0/P1 的 4 项回归、悬停提示与弹窗点击回归、操作反馈文案回归、生产口径与面板刷新/全屏回归、集团军与平台层回归）
+2. 跑两套测试，确认基线仍为 **163/163 + 57/57**（新增主题化下拉/设计器下拉回归）（含 §4 P0/P1 的 4 项回归、悬停提示与弹窗点击回归、操作反馈文案回归、生产口径与面板刷新/全屏回归、集团军与平台层回归）
 3. 若再动地图算法：改 `tools/build-map.js` → `node tools/build-map.js` 重生成 `data/map-generated.js`（约 1 分钟）→ 两套测试；**任何跨 ±180° 的环都必须先 `splitAntimeridian` 再参与平面运算**
 4. 若再动渲染时序：`node <npx 缓存里的 tsc.js> -p tsconfig.json` 编译 → 两套测试 → 多次 `zoom=2` 截图（456KB≈正常，105KB≈空白帧）→ 提交
 5. 提交后推送（触发 APK 重建）→ 在 Actions 下载新 APK 实机验证；推送 token 由用户提供
