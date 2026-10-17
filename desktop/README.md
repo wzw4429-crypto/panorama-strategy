@@ -12,7 +12,7 @@ desktop\
   make-icon.ps1     重新生成 app.ico（GDI+ 画金色地球 + 指北星）
   rsrc_windows_amd64.syso  内嵌资源（go-winres 产物，入库＝离线可构建）
   build.ps1         一键构建 / 出包（含可选自检）
-  verify.ps1        端到端验收：9 组 27 项，产出报告 + 截图
+  verify.ps1        端到端验收：11 组 34 项，产出报告 + 截图
   dist\             构建产物（已 gitignore，不入库）
 ```
 
@@ -28,7 +28,7 @@ powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Zip
 # 构建 + 冒烟自检（启动→自动开局→探针→存档→新进程读档比对哈希）
 powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -SelfTest
 
-# 跑完整验收（9 组 27 项，产出桌面截图与《验收报告.md》）
+# 跑完整验收（11 组 34 项，产出桌面截图与《验收报告.md》）
 powershell -ExecutionPolicy Bypass -File desktop\verify.ps1 -FreshUserData
 ```
 
@@ -42,13 +42,13 @@ desktop\dist\PSE-Panorama\PSE-Panorama.exe
 
 | 路径 | 说明 |
 |---|---|
-| `desktop\dist\PSE-Panorama\PSE-Panorama.exe` | 单文件 exe，**3.56 MB**（3 732 992 字节；Go 静态链接，不需要 .NET / 不需要装 Go） |
-| `desktop\dist\PSE-Panorama\www\` | web 游戏产物 16 个文件 **1.26 MB**（`index.html` + `src\*.js` + `data\`） |
+| `desktop\dist\PSE-Panorama\PSE-Panorama.exe` | 单文件 exe，**3.58 MB**（3 752 960 字节，SHA256 `2CFA6F695754A41694326E1364B2E3C099AE016642E0DF188A7D631D3D1BA6FE`；Go 静态链接，不需要 .NET / 不需要装 Go） |
+| `desktop\dist\PSE-Panorama\www\` | web 游戏产物 17 个文件 **1.29 MB**（`index.html` + `src\*.js` + `data\`） |
 | `desktop\dist\PSE-Panorama\README-分发.txt` | 给最终用户看的说明（存档位置、快捷键、右键） |
-| `desktop\dist\PSE-Panorama-win-x64.zip` | 上面三者打成一个 zip，**1.83 MB**（1 915 587 字节） |
-| `desktop\dist\_evidence\` | 验收截图与报告（`01-启动画面.png` / `02-记忆恢复.png` / `03-全屏.png` / `04-应用图标-32.png` / `验收报告.md`） |
+| `desktop\dist\PSE-Panorama-win-x64.zip` | 上面三者打成一个 zip，**1.84 MB**（1 931 869 字节） |
+| `desktop\dist\_evidence\` | 验收截图与报告（`01-启动画面.png` / `02-记忆恢复.png` / `03-全屏.png` / `04-应用图标-32.png` / `05-启动界面-1280x860.png` / `验收报告.md`） |
 
-**分发形态＝ exe + www 目录一起给**（解压即用，共 4.83 MB）。不做单文件内嵌：网页资源留在外面，改游戏内容只要替换 `www\`，不用重新编译 exe。
+**分发形态＝ exe + www 目录一起给**（解压即用，共 4.87 MB）。不做单文件内嵌：网页资源留在外面，改游戏内容只要替换 `www\`，不用重新编译 exe。
 
 运行要求：Windows 10 1809 x64 及以上 + **Microsoft Edge WebView2 Runtime**（Win11 自带，Win10 一般随 Edge 装好）。缺失时 `build.ps1` 会告警，用户到微软官网装 Evergreen 版即可。
 
@@ -67,6 +67,11 @@ desktop\dist\PSE-Panorama\PSE-Panorama.exe
    `PerMonitorV2` DPI 感知（应用清单声明 `permonitorv2,system`，运行时再调一次 `SetProcessDpiAwarenessContext(-4)` 兜底并回读 `AreDpiAwarenessContextsEqual` 自证；多屏/缩放切换时按 `WM_DPICHANGED` 建议矩形重排）、窗口位置尺寸记忆（`window-state.json`，跨屏越界会 clamp 回可见区）、单实例（`Local\PSE-Panorama-Shell` 互斥体，第二次双击把已有窗口切前台）、自绘 Win32 窗口类不用库默认消息循环（`WM_SIZE`→`Resize()`、`WM_DESTROY`→优雅关闭）。
 5. **应用图标与游戏同源**
    `app.ico` 由 `make-icon.ps1` 用 GDI+ 画出来（深蓝底 + 金色地球 + 指北星），坐标直接取 Android 版 `android/app/src/main/res/drawable/splash_logo.xml` 的 108×108 设计图；`go-winres` 把它连同 PerMonitorV2 清单、版本信息一起编进 `rsrc_windows_amd64.syso`，窗口类 `HIcon/HIconSm` + `WM_SETICON` 用的是**同一份**内嵌资源，所以 exe 文件图标、标题栏、任务栏、Alt-Tab 四处一致。
+6. **冷启动不闪白**
+   WebView2 的 `put_DefaultBackgroundColor` 默认是**白色**，而页面首帧要等 1.2 MB 同步脚本跑完（实测约 3 秒）才画 —— 修之前实测有 **11 帧纯白**（t=227→2943 ms，mean=255、亮像素 100%）。修法是两处都设成页面底色 `#0D1117`：窗口类 `HbrBackground`（系统在 WebView2 覆盖上来之前用它擦背景）+ `ICoreWebView2Controller2::PutDefaultBackgroundColor`（必须在 `Navigate` 之前调）。修后连拍 30 帧 **WHITE=0**，从 t≈350 ms 起就是 `#0d1117` 底色。
+   —— 注意绑定库 `GetDefaultBackgroundColor()` 的出参声明是错的（写成 `**COREWEBVIEW2_COLOR`，会把 4 字节颜色写进 8 字节指针并崩在 `applyDefaultBackground`），所以这里是**自己 QueryInterface + 按 vtable 槽位调用**（`ICoreWebView2Controller2` 槽 26/27）。
+7. **验收不打扰用户**
+   `--pse-offscreen` 让主窗口从创建起就在 `-32000,-32000`（屏幕外）：抓帧／截图一律走 `PrintWindow`（离屏窗口照常渲染，实测 30 帧全正常、无节流），验收期间**没有任何可见窗口一闪而过**。`--pse-mutex <名字>` 可换单实例互斥体名，避免和用户自己正在运行的那份打架。
 
 ## 4. 宿主桥 `window.PSE_HOST`（与 web 侧的唯一契约）
 
@@ -83,7 +88,7 @@ window.PSE_HOST = {
 };
 ```
 
-web 侧 `src/platform.ts` 只看"有没有 `window.PSE_HOST`"判定桌面（`PSE.Platform.isDesktop()`），所以壳报 `webview2` 也算桌面。**web 版没有宿主时行为不变**（存档回退 localStorage），这是两套 web 测试（146/146 + 27/27）能继续全绿的原因。
+web 侧 `src/platform.ts` 只看"有没有 `window.PSE_HOST`"判定桌面（`PSE.Platform.isDesktop()`），所以壳报 `webview2` 也算桌面。**web 版没有宿主时行为不变**（存档回退 localStorage），这是两套 web 测试（172/172 + 57/57）能继续全绿的原因。
 
 ## 5. 命令行参数
 
@@ -104,34 +109,39 @@ web 侧 `src/platform.ts` 只看"有没有 `window.PSE_HOST`"判定桌面（`PSE
 | `--pse-move x,y,w,h` | 移动到指定位置/尺寸（验证窗口记忆） |
 | `--pse-fullscreen` | 走 F11 回调里同一个 `toggleFullscreen()`（无交互前台时用它做确定性验证） |
 | `--pse-input` | 打印按键拦截矩阵 |
+| `--pse-offscreen` | 离屏验收模式：窗口放到 `-32000,-32000`，截图只走 PrintWindow（全程无可见窗口） |
+| `--pse-mutex <名字>` | 覆盖单实例互斥体名（默认 `Local\PSE-Panorama-Shell`），验收时避免与用户的正式版互斥 |
+| `--pse-frames <dir>` / `--pse-frames-count <n>` / `--pse-frames-ms <ms>` | 冷启动连拍抓帧（默认 40 帧、间隔 100 ms），统计白屏帧数 |
 | `--pse-hold <ms>` / `--pse-exit` | 保持若干毫秒/到点自动退出 |
 
 诊断日志：`%LOCALAPPDATA%\PSE-Panorama\shell.log`（同时输出到 stderr）。里面 `process-start epoch=` 与 `nav-completed ... epoch=` 是跨进程算启动耗时的依据。
 
-## 6. 验收（9 组 27 项，全部通过）
+## 6. 验收（11 组 34 项，全部通过；全程无可见窗口）
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File desktop\verify.ps1 -FreshUserData
-# → 结论：27 项通过，0 项失败   （有失败项会 exit 1）
+# → 结论：34 项通过，0 项失败   （有失败项会 exit 1）
 ```
 
 | 组 | 检查点 | 实测证据 |
 |---|---|---|
-| 1 | 宿主桥注入 / 虚拟主机（非 file://）/ 世界已开局 / canvas 真的画了 / 启动截图 | `origin=https://panorama.local`、`canvasMean=50`（0＝全黑）、`01-启动画面.png` |
-| 2 | 启动耗时（热配置 3 次采样） | 冷启动 **2644 / 2692 ms**（两次独立全量验收）；热启动采样 **2586~2705 ms**，冷页缓存时首轮可到 5022 ms |
+| 1 | 宿主桥注入 / 虚拟主机（非 file://）/ 世界已开局 / canvas 真的画了 / 启动截图 / 默认存档目录 | `origin=https://panorama.local`、`canvasMean=50`（0＝全黑）、`01-启动画面.png`、默认目录 `%LOCALAPPDATA%\PSE-Panorama` |
+| 2 | 启动耗时（热配置 3 次采样） | 冷启动 **2499 ms**（另一次全量验收 2589~2820 ms）；热启动采样 **2508~2639 ms**，冷页缓存时首轮可到 5022 ms |
 | 3 | 存档：**进程 A 写 → 全新进程 B 读** | A 写 `hash=2968368646` → B 读回同 hash，slot 出现在 `PSE.Save.list()`，落盘位置 `%LOCALAPPDATA%\PSE-Panorama\EBWebView\Default\Local Storage` |
-| 4 | 窗口尺寸位置记忆 | `after-move: 300,150 1280x860` → `window-state.json {"X":300,"Y":150,"W":1280,"H":860}` → 重启 `window-state loaded = 300,150 1280x860` |
+| 4 | 窗口尺寸位置记忆 + 截图未被最小化污染 | `after-move: 300,150 1280x860` → `window-state.json {"X":300,"Y":150,"W":1280,"H":860}` → 重启 `window-state loaded = 300,150 1280x860`；`capture = 02-记忆恢复.png (1280x860)` |
 | 5 | 全屏开/关 | `fullscreen-on: 0,0 1920x1080`（`caption=false thickframe=false`）→ `fullscreen-off: 300,150 1280x860`，`03-全屏.png` |
 | 6 | 按键拦截矩阵 | 10 个键里**只有 F11 拦截＝true**，F/Esc/Shift/Ctrl/Space/L/S/1/F5 全部透传 |
-| 7 | 单实例 | 第二实例 **29~35 ms** 内退出并打印"已有实例在运行"，进程数保持 1，第一实例不受影响 |
+| 7 | 单实例 | 第二实例 **28~35 ms** 内退出并打印"已有实例在运行"，进程数保持 1，第一实例不受影响 |
 | 8 | 运行时回读设置与 DPI | `右键菜单=false 开发者工具=false 状态栏=false`、`AreDpiAwarenessContextsEqual=1`（PerMonitorV2） |
 | 9 | 应用图标与版本信息 | `ExtractAssociatedIcon` 取到的 32×32 像素签名与 `desktop\app.ico` **完全一致**；`app-icon: 已从内嵌资源加载 RT_GROUP_ICON "APP"`；`PSE 全景战略引擎 / PSE 全景战略引擎 桌面版 / 0.3.0.0` |
+| 10 | 冷启动无白屏 / 首屏布局 / **无可见窗口** | 连拍 30 帧 `WHITE=0 LIGHT=0`；`default-background = #FF0D1117`；`1280x860` 下 `#startBox` 完整可见（`clippedPx` 全 0）；**11/11 次启动都带 `--pse-offscreen`** |
+| 11 | 验收卫生 | 跑完无残余进程（用户自己那份在别的目录，未被触碰） |
 
 不破坏 web（在仓库根跑，需已装 node）：
 
 ```powershell
-node --max-old-space-size=3072 tests\headless.js 3   # 全部通过（检查 157 项）
-node tests\dom-smoke.js                              # 冒烟测试全部通过（检查 28 项）
+node --max-old-space-size=3072 tests\headless.js 3   # 全部通过（检查 172 项）
+node tests\dom-smoke.js                              # 冒烟测试全部通过（检查 57 项）
 ```
 
 ## 6.1 应用图标怎么重做
@@ -152,7 +162,8 @@ go run github.com/tc-hib/go-winres@latest make --in winres/winres.json --out rsr
 | 现象 | 处理 |
 |---|---|
 | 启动报缺 WebView2 | 装 Evergreen Runtime；或 `build.ps1` 的环境检查会提前告警 |
-| 白屏 | 看 `shell.log` 里 `nav-completed` 有没有；有就用 `--pse-probe` 看宿主/世界/canvas 均值；再 `--pse-capture` 出图 |
+| 白屏 | 看 `shell.log` 里 `nav-completed` 有没有；有就用 `--pse-probe` 看宿主/世界/canvas 均值；再 `--pse-capture` 出图。冷启动那 3 秒应当是 `#0d1117` 底色（见第 6 条设计要点） |
+| 窗口状态/截图诡异（截图只有 160×28、客户区 0×0） | 窗口被最小化了：最小化时 `GetWindowRect` 给的是"图标矩形"、`GetClientRect` 给 0×0。壳会拒绝把退化矩形写进 `window-state.json`（日志 `window-state: 跳过写入`），离屏验收模式下截图前还会先 `SW_RESTORE` 再摆回屏幕外 |
 | 存档不见了 | 确认用的是虚拟主机（`origin` 必须是 `https://panorama.local`），`file://` 会丢；再确认 `%LOCALAPPDATA%\PSE-Panorama\EBWebView` 存在 |
 | 想清档重来 | 删 `%LOCALAPPDATA%\PSE-Panorama` |
 | PS 5.1 报"表达式或语句中包含意外的标记" | `.ps1` 必须是 **UTF-8 with BOM**（PowerShell 5.1 否则按 GBK 解析）；用编辑器保存为 UTF-8 BOM 即可 |

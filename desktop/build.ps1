@@ -287,16 +287,17 @@ if ($SelfTest) {
     return ($out -join "`n")
   }
 
-  $probeText = Invoke-Shell @('--pse-root', $wwwRoot, '--pse-query', 'auto=GER&speed=3', '--pse-probe', '--pse-exit')
+  # --pse-offscreen：自检的窗口也放到屏幕外，用户不会看到一闪而过的窗口
+  $probeText = Invoke-Shell @('--pse-root', $wwwRoot, '--pse-query', 'auto=GER&speed=3', '--pse-probe', '--pse-offscreen', '--pse-exit')
   $hostOk = $probeText -match '"host":true'
   $worldOk = $probeText -match '"world":true'
   $ok1 = $hostOk -and $worldOk
   Say ("  探针  : 宿主注入={0} 世界已开局={1} 虚拟主机={2}" -f $hostOk, $worldOk, ($probeText -match 'panorama\.local')) $(if ($ok1) { 'Green' } else { 'Red' })
 
-  $saveText = Invoke-Shell @('--pse-root', $wwwRoot, '--pse-query', 'auto=GER&speed=3', '--pse-save', 'pse_selftest', '--pse-exit')
+  $saveText = Invoke-Shell @('--pse-root', $wwwRoot, '--pse-query', 'auto=GER&speed=3', '--pse-save', 'pse_selftest', '--pse-offscreen', '--pse-exit')
   $hash1 = [regex]::Match($saveText, '"hash":(\d+)').Groups[1].Value
 
-  $loadText = Invoke-Shell @('--pse-root', $wwwRoot, '--pse-load', 'pse_selftest', '--pse-exit')
+  $loadText = Invoke-Shell @('--pse-root', $wwwRoot, '--pse-load', 'pse_selftest', '--pse-offscreen', '--pse-exit')
   $hash2 = [regex]::Match($loadText, '"hash":(\d+)').Groups[1].Value
   $ok2 = ($hash1 -ne '') -and ($hash1 -eq $hash2)
   $verdict = '不一致 ✗'

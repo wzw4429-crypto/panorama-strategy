@@ -190,11 +190,11 @@ node tools/build-map.js                               # 重新生成地图（约
 
 **Windows 桌面版（Go + WebView2，已完成）**
 
-`desktop\` 下是独立于 web 的桌面壳：Go 静态编译的单文件 exe（3.56 MB）+ `www\`（就是本仓库的静态产物），用 `SetVirtualHostNameToFolderMapping` 把 www 映射成 `https://panorama.local/`（**不用 `file://`**，否则 localStorage 会丢存档），存档落在 `%LOCALAPPDATA%\PSE-Panorama`；F11 全屏、窗口位置记忆、单实例、PerMonitorV2 DPI、禁用 WebView2 默认右键菜单，游戏自己的 `F`/`Shift+F`/`Esc` 等按键全部透传；exe 内嵌 `app.ico`（与游戏同源的金色地球图标）与版本信息——文件图标、标题栏、任务栏、Alt-Tab 四处一致。
+`desktop\` 下是独立于 web 的桌面壳：Go 静态编译的单文件 exe（3.58 MB）+ `www\`（就是本仓库的静态产物 17 文件 1.29 MB），用 `SetVirtualHostNameToFolderMapping` 把 www 映射成 `https://panorama.local/`（**不用 `file://`**，否则 localStorage 会丢存档），存档落在 `%LOCALAPPDATA%\PSE-Panorama`；F11 全屏、窗口位置记忆、单实例、PerMonitorV2 DPI、禁用 WebView2 默认右键菜单，游戏自己的 `F`/`Shift+F`/`Esc` 等按键全部透传；exe 内嵌 `app.ico`（与游戏同源的金色地球图标）与版本信息——文件图标、标题栏、任务栏、Alt-Tab 四处一致；冷启动不闪白（WebView2 默认背景色与窗口类背景刷都设成页面底色 `#0D1117`，修前实测有 11 帧纯白）。
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Zip        # 出 exe + www + zip
-powershell -ExecutionPolicy Bypass -File desktop\verify.ps1 -FreshUserData  # 9 组 27 项端到端验收
+powershell -ExecutionPolicy Bypass -File desktop\verify.ps1 -FreshUserData  # 11 组 34 项端到端验收（全程无可见窗口）
 ```
 
 桌面壳只消费 web 产物，**不修改任何游戏代码**；详细设计、验收证据与排障见 `desktop\README.md`、`HANDOVER.md` §7。

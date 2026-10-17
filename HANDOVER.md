@@ -293,27 +293,29 @@ git fetch origin          # 同步 tracking ref（否则 status 会显示 ahead�
 
 ## 7. Windows 桌面版（Go + WebView2 壳，已完成）
 
-产物：`desktop\dist\PSE-Panorama\`（exe 3.56 MB / 3 732 992 字节 + `www\` 16 文件 1.26 MB，另可出 1.83 MB 的 zip）。全程**只动 `desktop/`**，不碰 `src/`、`index.html`、`data/`、`tests/`、`tools/`。
+产物：`desktop\dist\PSE-Panorama\`（exe 3.58 MB / 3 752 960 字节，SHA256 `2CFA6F69…D1BA6FE` ＋ `www\` 17 文件 1.29 MB，另可出 1.84 MB 的 zip）。全程**只动 `desktop/`**，不碰 `src/`、`index.html`、`data/`、`tests/`、`tools/`。
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Zip      # 出包
+powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Zip      # 出包（自检段也走离屏，不弹窗口）
 powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -SelfTest # 出包 + 冒烟自检
-powershell -ExecutionPolicy Bypass -File desktop\verify.ps1 -FreshUserData  # 9 组 27 项验收
+powershell -ExecutionPolicy Bypass -File desktop\verify.ps1 -FreshUserData  # 11 组 34 项验收（全程无可见窗口）
 ```
 
-五条硬性设计（理由都是实测踩出来的）：
+七条硬性设计（理由都是实测踩出来的）：
 
 1. **不用 `file://`，用 `SetVirtualHostNameToFolderMapping` 映射成 `https://panorama.local/`** —— file:// 下 WebView2 的 localStorage 不可靠会丢存档；虚拟主机是正常 https 源，零端口零防火墙弹窗。
 2. **`UserDataFolder=%LOCALAPPDATA%\PSE-Panorama`**，存档（`EBWebView\Default\Local Storage`）与窗口记忆（`window-state.json`）都在这里，删目录即清档。
 3. **只拦 F11**（`AcceleratorKeyCallback` 里 `vk==0x7B`）：`F`/`Shift+F`/`Esc`/数字键/`L`/`S` 全部透传，并 `AreDefaultContextMenusEnabled=false` 让右键归游戏用。
 4. **PerMonitorV2 DPI + 窗口位置尺寸记忆（含跨屏 clamp）+ 单实例**（`Local\PSE-Panorama-Shell` 互斥体，第二次双击切前台）。
 5. **应用图标与游戏同源**：`desktop\make-icon.ps1` 用 GDI+ 按 Android 版 `splash_logo.xml` 的 108×108 设计图画出 `app.ico`（深蓝底 + 金色地球 + 指北星，16/24/32/48/64 为 DIB 条目、128/256 为 PNG 条目），`go-winres` 按 `winres\winres.json` 把它和应用清单（`permonitorv2,system`）、版本信息一起编成 `rsrc_windows_amd64.syso`（入库，离线可构建）；窗口类 `HIcon/HIconSm` + `WM_SETICON` 用同一份内嵌资源，exe 文件图标 / 标题栏 / 任务栏 / Alt-Tab 四处一致。
+6. **冷启动不闪白**：WebView2 的 `put_DefaultBackgroundColor` 默认白色，而页面首帧要等 1.2 MB 同步脚本跑完才画（实测约 3 秒）—— 修前连拍有 **11 帧纯白**（t=227→2943 ms，mean=255、亮像素 100%）。两处都设成页面底色 `#0D1117`（窗口类 `HbrBackground` + 必须在 `Navigate` 前调的 `PutDefaultBackgroundColor`），修后 30 帧 **WHITE=0**、t≈350 ms 起就是深色底。注意绑定库 `GetDefaultBackgroundColor()` 的出参声明是错的（`**COREWEBVIEW2_COLOR`，会把 4 字节颜色写进 8 字节指针并崩在 `applyDefaultBackground`），这里是自己 QueryInterface + 按 vtable 槽 26/27 调用。
+7. **验收不打扰用户**：`--pse-offscreen` 让窗口从创建起就在 `-32000,-32000`，截图/抓帧只走 `PrintWindow`（离屏窗口照常渲染，实测 30 帧无节流），验收期间没有任何可见窗口；`--pse-mutex <名字>` 换单实例互斥体名，避免和用户自己跑着的那份打架。
 
 宿主桥 `window.PSE_HOST`（`kind:'webview2'`）必须在**导航之前**注入（`AddScriptToExecuteOnDocumentCreated` 对当前文档无效，顺序反了就是白屏）；kv 基于 localStorage，契约与 `src/platform.ts` 逐项对齐（`store()` 的接口是 `getItem/setItem/removeItem/key/length`）。
 
-**验收实测（`desktop\verify.ps1`，27/27 通过）**：宿主桥注入 ✓；`origin=https://panorama.local` ✓；`?auto=GER&speed=3` 自动开局、`canvasMean=50`（0＝全黑）✓；启动 进程start→nav-completed **2644 ms / 2692 ms**（两次独立全量验收；热启动采样 2586~2705 ms）✓；**进程 A 写存档 `hash=2968368646` → 全新进程 B 读回同一 hash** ✓；窗口 `300,150 1280x860` 记忆跨重启 ✓；全屏 `0,0 1920x1080`（无标题栏）开/关 ✓；第二实例 35 ms 退出、进程数仍为 1 ✓；运行时回读 `右键菜单=false 开发者工具=false`、`AreDpiAwarenessContextsEqual=1` ✓；**exe 内嵌图标 32×32 像素签名与 `desktop\app.ico` 完全一致**、`app-icon: 已从内嵌资源加载 RT_GROUP_ICON "APP"`、版本信息 `PSE 全景战略引擎 / 0.3.0.0` ✓。截图与《验收报告.md》（含 exe SHA256）在 `desktop\dist\_evidence\`（dist 已 gitignore）。同期 web 两套测试 **157/157 + 28/28**，未受桌面壳影响。
+**验收实测（`desktop\verify.ps1`，34/34 通过，exit 0，全程无可见窗口）**：宿主桥注入 ✓；`origin=https://panorama.local` ✓；`?auto=GER&speed=3` 自动开局、`canvasMean=50`（0＝全黑）✓；启动 进程start→nav-completed **2499 ms**（另一次全量验收 2589~2820 ms；热启动采样 2508~2639 ms）✓；**进程 A 写存档 `hash=2968368646` → 全新进程 B 读回同一 hash** ✓；窗口 `300,150 1280x860` 记忆跨重启 ✓；全屏 `0,0 1920x1080`（无标题栏）开/关 ✓；第二实例 28 ms 退出、进程数仍为 1 ✓；运行时回读 `右键菜单=false 开发者工具=false`、`AreDpiAwarenessContextsEqual=1` ✓；**exe 内嵌图标 32×32 像素签名与 `desktop\app.ico` 完全一致** ✓；冷启动抓帧 `WHITE=0 LIGHT=0`、`default-background = #FF0D1117` ✓；`1280x860` 下开始界面 `clippedPx` 全 0 ✓；11/11 次启动都带 `--pse-offscreen` ✓；跑完无残余进程 ✓。截图与《验收报告.md》（含 exe SHA256）在 `desktop\dist\_evidence\`（dist 已 gitignore）。同期 web 两套测试 **172/172 + 57/57**（HEAD `4ed4299`），桌面壳只消费 web 产物、未改任何游戏代码。
 
-**该路线踩过的坑（改壳时注意）**：① 库 `github.com/jchv/go-webview2` 的 `Resize()` 在 controller 未就绪时直接 return，初始 `WM_SIZE` 会丢 → WebView2 永远 0×0、窗口一片白，`Embed()` 成功后必须显式再 `Resize()` 一次；② 该库用 `int64(res) < 0` 判 HRESULT 失败，amd64 上零扩展恒为正 → 失败漏判后空指针崩，别依赖它的错误判断；③ `ICoreWebView2Controller` 的 `Close` 库里只声明字段没实现，得自己按 vtable 槽位 24 调用（先 `PutIsVisible(false)`），否则退出时 localStorage 落盘不干净（实测会冒一行 `can't open file for write !`）；④ `RegisterClassExW` 的 `HCursor` 必须传 `LoadCursorW` 得到的真实句柄，直接写 32512 会 `ERROR_INVALID_PARAMETER`；⑤ 所有 WebView2 COM 调用必须在同一 UI 线程（`runtime.LockOSThread`），在协程里调用会崩；⑥ `winres.json` 的 `RT_GROUP_ICON` 值必须是**字符串**路径（写成数组会被当成 PNG 列表解码，报 `image: unknown format`），`dpi-awareness` 只认 `unaware`/`per monitor`/`per monitor v2`；⑦ 应用清单声明了 DPI 感知后 `SetProcessDpiAwarenessContext` 会返回 `Access is denied`（正常），自证要看 `AreDpiAwarenessContextsEqual`。
+**该路线踩过的坑（改壳时注意）**：① 库 `github.com/jchv/go-webview2` 的 `Resize()` 在 controller 未就绪时直接 return，初始 `WM_SIZE` 会丢 → WebView2 永远 0×0、窗口一片白，`Embed()` 成功后必须显式再 `Resize()` 一次；② 该库用 `int64(res) < 0` 判 HRESULT 失败，amd64 上零扩展恒为正 → 失败漏判后空指针崩，别依赖它的错误判断；③ `ICoreWebView2Controller` 的 `Close` 库里只声明字段没实现，得自己按 vtable 槽位 24 调用（先 `PutIsVisible(false)`），否则退出时 localStorage 落盘不干净（实测会冒一行 `can't open file for write !`）；④ `RegisterClassExW` 的 `HCursor` 必须传 `LoadCursorW` 得到的真实句柄，直接写 32512 会 `ERROR_INVALID_PARAMETER`；⑤ 所有 WebView2 COM 调用必须在同一 UI 线程（`runtime.LockOSThread`），在协程里调用会崩；⑥ `winres.json` 的 `RT_GROUP_ICON` 值必须是**字符串**路径（写成数组会被当成 PNG 列表解码，报 `image: unknown format`），`dpi-awareness` 只认 `unaware`/`per monitor`/`per monitor v2`；⑦ 应用清单声明了 DPI 感知后 `SetProcessDpiAwarenessContext` 会返回 `Access is denied`（正常），自证要看 `AreDpiAwarenessContextsEqual`；⑧ **窗口一旦被最小化**，`GetWindowRect` 给的是"图标矩形"（实测 160×28，位于 -32000,-32000）、`GetClientRect` 给 0×0 —— 截图会变废图、退出时还会把退化值写进 `window-state.json`（下次启动就丢窗口记忆）。壳现在的做法：最小化时**拒绝写状态**（`window-state: 跳过写入`），离屏验收模式下截图前先 `SW_RESTORE` 再摆回屏幕外；验收第 4 组专门有一项盯着截图尺寸。⑨ 桌面产物要可复现必须加 `-buildvcs=false`（否则 Go 把 vcs.revision/工作树是否脏写进二进制，同源 exe 哈希每次都变）；⑩ 本机 pwsh 工具其实是 **Windows PowerShell 5.1**，`.ps1` 含中文时必须是 **UTF-8 with BOM**（用 `edit`/`write` 改完要重新加 BOM），否则报一串"表达式或语句中包含意外的标记"。
 **已知限制**：自动化会话拿不到交互式前台，WebView2 也不处理 `PostMessage` 造的伪输入 → 键鼠注入无法端到端复现；F11 的端到端验证走 `--pse-fullscreen`（与 F11 回调同一个 `toggleFullscreen()`），"不抢按键"由拦截矩阵 + 设置回读保证。
 
 ---

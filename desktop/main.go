@@ -109,6 +109,12 @@ const (
 	// appIconResName 是内嵌图标组名（desktop\winres\winres.json 的 RT_GROUP_ICON 键）
 	appIconResName = "APP"
 
+	// 页面底色 = index.html 的 --bg: #0d1117。WebView2 默认背景是白色，窗口类默认背景刷
+	// 也是空的 —— 冷启动时用户会先看到约 3 秒的纯白（实测帧），所以两处都填成这个颜色。
+	pageBGR = 0x0d
+	pageBGG = 0x11
+	pageBGB = 0x17
+
 	keyeventfKeyUp = 0x0002
 )
 
@@ -135,6 +141,7 @@ var (
 	pGetConsoleWindow         = kernel32.NewProc("GetConsoleWindow")
 	pGetConsoleProcessList    = kernel32.NewProc("GetConsoleProcessList")
 	pIsZoomed                 = user32.NewProc("IsZoomed")
+	pIsIconic                 = user32.NewProc("IsIconic")
 	pSetWindowPos             = user32.NewProc("SetWindowPos")
 	pGetWindowLongPtr         = user32.NewProc("GetWindowLongPtrW")
 	pSetWindowLongPtr         = user32.NewProc("SetWindowLongPtrW")
@@ -161,6 +168,7 @@ var (
 	pGetDC                    = user32.NewProc("GetDC")
 	pReleaseDC                = user32.NewProc("ReleaseDC")
 	pPrintWindow              = user32.NewProc("PrintWindow")
+	pIsWindowVisible          = user32.NewProc("IsWindowVisible")
 
 	pCreateMutexW = kernel32.NewProc("CreateMutexW")
 
@@ -171,6 +179,7 @@ var (
 	pDeleteObject           = gdi32.NewProc("DeleteObject")
 	pDeleteDC               = gdi32.NewProc("DeleteDC")
 	pBitBlt                 = gdi32.NewProc("BitBlt")
+	pCreateSolidBrush       = gdi32.NewProc("CreateSolidBrush")
 )
 
 type point struct{ X, Y int32 }
@@ -255,6 +264,10 @@ type options struct {
 	inputTest  bool
 	holdMs     int
 	autoExit   bool
+	framesDir  string
+	framesMs   int
+	framesN    int
+	offscreen  bool
 	testMode   bool
 }
 
@@ -272,6 +285,11 @@ type app struct {
 	prevStyle  uintptr
 	prevRect   rect
 	prevMax    bool
+
+	// offscreen 验收模式（--pse-offscreen）：窗口放到屏幕外，验收全程不出现可见窗口。
+	// logRect 记录「逻辑窗口矩形」，用于日志与 window-state.json（绝不能让 -32000 落盘）。
+	offscreen bool
+	logRect   rect
 
 	navDone   atomic.Bool
 	startAt   time.Time
@@ -307,25 +325,31 @@ func loadAppIcon(inst windows.Handle) windows.Handle {
 
 func main() {
 	var (
-		root        = flag.String("pse-root", "", "覆盖 web 资源根目录（含 index.html）")
-		capture     = flag.String("pse-capture", "", "测试：导航完成后整窗截图到指定 PNG 并退出")
-		evalExpr    = flag.String("pse-eval", "", "测试：导航完成后执行 JS 表达式，结果从 stdout 打印")
-		jsFile      = flag.String("pse-js", "", "测试：从文件读取 JS 表达式执行（避免命令行转义问题）")
-		evalOut     = flag.String("pse-eval-out", "", "测试：把 JS 表达式结果额外写入文件")
-		grabCanvas  = flag.String("pse-grab-canvas", "", "测试：把页面 canvas 缩略图导出为 PNG（页面内渲染证明）")
-		probe       = flag.Bool("pse-probe", false, "测试：输出内置页面渲染诊断信息")
-		saveSlot    = flag.String("pse-save", "", "测试：调用游戏 PSE.Save.save(PSE.Game.world, SLOT)")
-		loadSlot    = flag.String("pse-load", "", "测试：调用游戏 PSE.Save.load(SLOT)")
-		query       = flag.String("pse-query", "", "启动 URL 的 query（游戏调试参数，如 auto=GER&speed=3）")
-		move        = flag.String("pse-move", "", "测试：移动/缩放窗口到 x,y,w,h（验证窗口记忆）")
-		keys        = flag.String("pse-keys", "", "测试：合成按键序列，如 F11,F11（验证全屏切换）")
-		fsTest      = flag.Bool("pse-fullscreen", false, "测试：直接触发全屏切换（与 F11 同一函数）")
-		inputTest   = flag.Bool("pse-input", false, "测试：向 WebView2 投递真实鼠标/键盘消息，验证按键透传与右键到达游戏")
-		holdMs      = flag.Int("pse-hold", 0, "测试：动作执行完后再保持运行 N 毫秒")
-		autoExit    = flag.Bool("pse-exit", false, "测试：动作执行完退出")
-		keepConsole = flag.Bool("pse-console", false, "保留控制台窗口（调试用）")
-		userDataDir = flag.String("pse-userdata", "", "覆盖用户数据目录（默认 %LOCALAPPDATA%\\PSE-Panorama）")
-		version     = flag.Bool("pse-version", false, "打印版本并退出")
+		root          = flag.String("pse-root", "", "覆盖 web 资源根目录（含 index.html）")
+		capture       = flag.String("pse-capture", "", "测试：导航完成后整窗截图到指定 PNG 并退出")
+		evalExpr      = flag.String("pse-eval", "", "测试：导航完成后执行 JS 表达式，结果从 stdout 打印")
+		jsFile        = flag.String("pse-js", "", "测试：从文件读取 JS 表达式执行（避免命令行转义问题）")
+		evalOut       = flag.String("pse-eval-out", "", "测试：把 JS 表达式结果额外写入文件")
+		grabCanvas    = flag.String("pse-grab-canvas", "", "测试：把页面 canvas 缩略图导出为 PNG（页面内渲染证明）")
+		probe         = flag.Bool("pse-probe", false, "测试：输出内置页面渲染诊断信息")
+		saveSlot      = flag.String("pse-save", "", "测试：调用游戏 PSE.Save.save(PSE.Game.world, SLOT)")
+		loadSlot      = flag.String("pse-load", "", "测试：调用游戏 PSE.Save.load(SLOT)")
+		query         = flag.String("pse-query", "", "启动 URL 的 query（游戏调试参数，如 auto=GER&speed=3）")
+		move          = flag.String("pse-move", "", "测试：移动/缩放窗口到 x,y,w,h（验证窗口记忆）")
+		keys          = flag.String("pse-keys", "", "测试：合成按键序列，如 F11,F11（验证全屏切换）")
+		fsTest        = flag.Bool("pse-fullscreen", false, "测试：直接触发全屏切换（与 F11 同一函数）")
+		inputTest     = flag.Bool("pse-input", false, "测试：向 WebView2 投递真实鼠标/键盘消息，验证按键透传与右键到达游戏")
+		holdMs        = flag.Int("pse-hold", 0, "测试：动作执行完后再保持运行 N 毫秒")
+		autoExit      = flag.Bool("pse-exit", false, "测试：动作执行完退出")
+		framesDir     = flag.String("pse-frames", "", "测试：窗口出现后按固定频率抓帧到目录（冷启动白屏取证）")
+		framesMs      = flag.Int("pse-frames-ms", 100, "测试：抓帧间隔毫秒（默认 100 = 10fps）")
+		framesN       = flag.Int("pse-frames-count", 40, "测试：抓帧数量（默认 40 ≈ 4 秒）")
+		offscreenFlag = flag.Bool("pse-offscreen", false, "测试：窗口放到屏幕外（验收全程无可见窗口，抓帧走 PrintWindow）")
+		keepConsole   = flag.Bool("pse-console", false, "保留控制台窗口（调试用）")
+		userDataDir   = flag.String("pse-userdata", "", "覆盖用户数据目录（默认 %LOCALAPPDATA%\\PSE-Panorama）")
+		userDataEcho  = flag.Bool("pse-userdata-echo", false, "只打印默认用户数据目录并退出（不建目录、不初始化 WebView2）")
+		mutexFlag     = flag.String("pse-mutex", "", "覆盖单实例互斥体名（默认 Local\\PSE-Panorama-Shell）")
+		version       = flag.Bool("pse-version", false, "打印版本并退出")
 	)
 	flag.Parse()
 
@@ -356,12 +380,25 @@ func main() {
 	if *userDataDir != "" {
 		userData = *userDataDir
 	}
+	// --pse-userdata-echo：只打印解析出来的默认用户数据目录就退出（零副作用：
+	// 不建目录、不建互斥体、不初始化 WebView2），验收用它证明硬要求 2 的默认值。
+	if *userDataEcho {
+		fmt.Fprintf(os.Stderr, "[PSE-DESKTOP] user-data-default = %s\n", userData)
+		os.Exit(0)
+	}
 	if err := os.MkdirAll(userData, 0o755); err != nil {
 		fatal("无法创建用户数据目录 "+userData, err)
 	}
 
 	// 单实例：命名 Mutex。第二个实例把已有窗口带到前台后立即退出。
-	mutexName, _ := windows.UTF16PtrFromString(`Local\` + appDataName + `-Shell`)
+	// --pse-mutex 可换名字：用户正开着正式版时，验收/抓帧要用自己的名字，否则会被
+	// 它持有的互斥体挡住（测试的是同一套逻辑，只是名字不同）。
+	instName := *mutexFlag
+	if instName == "" {
+		instName = `Local\` + appDataName + `-Shell`
+	}
+	logf("single-instance mutex = %s", instName)
+	mutexName, _ := windows.UTF16PtrFromString(instName)
 	h, _, callErr := pCreateMutexW.Call(0, 0, uintptr(unsafe.Pointer(mutexName)))
 	if h != 0 && (callErr == windows.ERROR_ALREADY_EXISTS || windows.GetLastError() == windows.ERROR_ALREADY_EXISTS) {
 		logf("pid=%d 已有实例在运行（mutex 已存在），把已有窗口带到前台后退出", os.Getpid())
@@ -379,7 +416,8 @@ func main() {
 		capture: *capture, evalExpr: *evalExpr, jsFile: *jsFile, evalOut: *evalOut,
 		grabCanvas: *grabCanvas, probe: *probe, saveSlot: *saveSlot, loadSlot: *loadSlot,
 		query: *query, move: *move, keys: *keys, fsTest: *fsTest, inputTest: *inputTest,
-		holdMs: *holdMs, autoExit: *autoExit, testMode: testMode,
+		holdMs: *holdMs, autoExit: *autoExit, testMode: testMode, offscreen: *offscreenFlag,
+		framesDir: *framesDir, framesMs: *framesMs, framesN: *framesN,
 	}
 	run(opt)
 }
@@ -409,7 +447,7 @@ func run(opt options) {
 	logf("dpi-context: PerMonitorV2 = %v (AreDpiAwarenessContextsEqual=%d, SetProcessDpiAwarenessContext=%v)",
 		eq != 0, eq, dpiCall)
 
-	theApp = &app{opt: opt, startAt: time.Now(), uiReady: make(chan struct{})}
+	theApp = &app{opt: opt, startAt: time.Now(), uiReady: make(chan struct{}), offscreen: opt.offscreen}
 	a := theApp
 
 	a.chromium = edge.NewChromium()
@@ -433,6 +471,9 @@ func run(opt options) {
 	arrow, _, _ := pLoadCursorW.Call(0, uintptr(idcArrow))
 	// 应用图标来自内嵌资源（rsrc_windows_amd64.syso），窗口类 + WM_SETICON 都用它
 	appIcon := loadAppIcon(inst)
+	// 窗口类背景刷：WebView2 覆盖上来之前（以及期间的重绘），客户区用页面同色填充，
+	// 否则系统给出的默认是白底，深色应用冷启动会闪白。
+	brush, _, _ := pCreateSolidBrush.Call(colorRef(pageBGR, pageBGG, pageBGB))
 	wc := wndClassExW{
 		CbSize:        uint32(unsafe.Sizeof(wndClassExW{})),
 		HInstance:     inst,
@@ -441,6 +482,7 @@ func run(opt options) {
 		HCursor:       windows.Handle(arrow),
 		HIcon:         appIcon,
 		HIconSm:       appIcon,
+		HbrBackground: windows.Handle(brush),
 	}
 	if r, _, err := pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc))); r == 0 {
 		fatal("RegisterClassExW 失败", err)
@@ -449,16 +491,25 @@ func run(opt options) {
 	st := loadWinState(opt.userData)
 	logf("window-state loaded = %d,%d %dx%d maximized=%v", st.X, st.Y, st.W, st.H, st.Maximized)
 	st = clampToScreen(st)
+	createX, createY := st.X, st.Y
+	if opt.offscreen {
+		// 验收模式：窗口直接创建在屏幕外，从第一帧起就不会有可见窗口。
+		createX, createY = offscreenX, offscreenY
+		logf("offscreen: 验收模式，窗口放到屏幕外 %d,%d（%dx%d，全程无可见窗口；抓帧走 PrintWindow）",
+			offscreenX, offscreenY, st.W, st.H)
+	}
 	hwnd, _, err := pCreateWindowExW.Call(0,
 		uintptr(unsafe.Pointer(className)), uintptr(unsafe.Pointer(title)),
 		wsOverlapped,
-		uintptr(int2u(int64(st.X))), uintptr(int2u(int64(st.Y))),
+		uintptr(int2u(int64(createX))), uintptr(int2u(int64(createY))),
 		uintptr(int2u(int64(st.W))), uintptr(int2u(int64(st.H))),
 		0, 0, uintptr(inst), 0)
 	if hwnd == 0 {
 		fatal("CreateWindowExW 失败", err)
 	}
 	a.hwnd = windows.Handle(hwnd)
+	a.logRect = rect{Left: int32(st.X), Top: int32(st.Y),
+		Right: int32(st.X + st.W), Bottom: int32(st.Y + st.H)}
 
 	// 标题栏 / 任务栏 / Alt-Tab 都使用内嵌应用图标
 	if appIcon != 0 {
@@ -473,6 +524,16 @@ func run(opt options) {
 	}
 	a.logWinState("startup")
 
+	// 冷启动白屏取证：窗口一出现就开始按 ~10fps 抓屏，直到抓到 N 帧。
+	// 抓帧走独立的屏幕 BitBlt（不碰 WebView2 COM），因此能与下面的 Embed/Navigate 并行。
+	if opt.framesDir != "" {
+		if err := os.MkdirAll(opt.framesDir, 0o755); err != nil {
+			logf("抓帧目录创建失败: %v", err)
+		} else {
+			go a.frameBurst(a.hwnd, opt.framesDir)
+		}
+	}
+
 	// WebView2 初始化（内部会泵消息直到 controller 就绪）
 	if !a.chromium.Embed(hwnd) {
 		fatal("WebView2 初始化失败（WebView2 Runtime 是否已安装？）", fmt.Errorf("Chromium.Embed 返回 false"))
@@ -482,6 +543,10 @@ func run(opt options) {
 	// Embed 之后必须显式按客户区尺寸设置一次 bounds，否则 WebView2 一直是 0x0：
 	// 页面 viewport 变成默认尺寸、窗口客户区一片空白。
 	a.resizeWebView()
+
+	// WebView2 自己的背景色也换成页面底色（默认是白色）：必须在 Navigate 之前设置，
+	// 否则从 Embed 到页面首帧之间（冷启动实测约 3 秒）屏幕上就是一片白。
+	a.applyDefaultBackground()
 
 	// 禁用默认右键菜单（游戏自己用右键下达命令）等
 	if s, err := a.chromium.GetSettings(); err == nil {
@@ -600,9 +665,8 @@ func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 	case wmDpiChanged:
 		if lparam != 0 {
 			nr := (*rect)(unsafe.Pointer(lparam))
-			pSetWindowPos.Call(hwnd, 0,
-				uintptr(int2u(int64(nr.Left))), uintptr(int2u(int64(nr.Top))),
-				uintptr(nr.Right-nr.Left), uintptr(nr.Bottom-nr.Top),
+			a.logRect = *nr
+			a.placeWindow(nr.Left, nr.Top, nr.Right-nr.Left, nr.Bottom-nr.Top,
 				swpNoZOrder|swpNoActivate)
 		}
 		if a.chromium != nil {
@@ -610,6 +674,7 @@ func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 		}
 		return 0
 	case wmClose:
+		logf("wm-close: 收到 WM_CLOSE（msg=0x%04X），准备退出", msg)
 		pDestroyWindow.Call(hwnd)
 		return 0
 	case wmDestroy:
@@ -630,8 +695,12 @@ func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 // 因此这里用槽位下标直接调用；下标先用 get_Bounds(slot 5) 与库的 GetBounds()
 // 做逐字段比对校验，只有校验通过才会调用 Close(slot 24)，避免打错位置崩进程。
 const (
-	ctrlSlotGetBounds = 5
-	ctrlSlotClose     = 24
+	ctrlSlotGetBounds   = 5
+	ctrlSlotClose       = 24
+	ctrlSlotQueryIntf   = 0  // IUnknown::QueryInterface
+	ctrlSlotRelease     = 2  // IUnknown::Release
+	ctrl2SlotGetBgColor = 26 // ICoreWebView2Controller2::get_DefaultBackgroundColor
+	ctrl2SlotPutBgColor = 27 // ICoreWebView2Controller2::put_DefaultBackgroundColor
 )
 
 type rectT struct{ Left, Top, Right, Bottom int32 }
@@ -717,9 +786,9 @@ func (a *app) toggleFullscreen() {
 func (a *app) enterFullscreen() {
 	style, _, _ := pGetWindowLongPtr.Call(uintptr(a.hwnd), gwlpStyle)
 	a.prevStyle = style
-	var r rect
-	pGetWindowRect.Call(uintptr(a.hwnd), uintptr(unsafe.Pointer(&r)))
-	a.prevRect = r
+	if r, ok := a.winRect(); ok {
+		a.prevRect = r // 逻辑矩形（离屏模式下窗口真身在 -32000）
+	}
 	a.prevMax = isZoomed(a.hwnd)
 
 	mon := monitorFromWindow(a.hwnd)
@@ -731,10 +800,10 @@ func (a *app) enterFullscreen() {
 	newStyle := style &^ (wsCaption | wsThickFrame)
 	pSetWindowLongPtr.Call(uintptr(a.hwnd), gwlpStyle, newStyle)
 	pShowWindow.Call(uintptr(a.hwnd), uintptr(swRestore))
-	pSetWindowPos.Call(uintptr(a.hwnd), 0,
-		uintptr(int2u(int64(mi.RcMonitor.Left))), uintptr(int2u(int64(mi.RcMonitor.Top))),
-		uintptr(int2u(int64(mi.RcMonitor.Right-mi.RcMonitor.Left))),
-		uintptr(int2u(int64(mi.RcMonitor.Bottom-mi.RcMonitor.Top))),
+	// 全屏时也别让窗口可见：离屏模式下仍然放到屏幕外（尺寸=显示器尺寸）
+	monRect := mi.RcMonitor
+	a.logRect = monRect
+	a.placeWindow(monRect.Left, monRect.Top, monRect.Right-monRect.Left, monRect.Bottom-monRect.Top,
 		swpNoZOrder|swpFrameChange|swpNoActivate)
 	a.fullscreen = true
 	_ = a.chromium.NotifyParentWindowPositionChanged()
@@ -743,10 +812,9 @@ func (a *app) enterFullscreen() {
 
 func (a *app) exitFullscreen() {
 	pSetWindowLongPtr.Call(uintptr(a.hwnd), gwlpStyle, a.prevStyle)
-	pSetWindowPos.Call(uintptr(a.hwnd), 0,
-		uintptr(int2u(int64(a.prevRect.Left))), uintptr(int2u(int64(a.prevRect.Top))),
-		uintptr(int2u(int64(a.prevRect.Right-a.prevRect.Left))),
-		uintptr(int2u(int64(a.prevRect.Bottom-a.prevRect.Top))),
+	a.logRect = a.prevRect
+	a.placeWindow(a.prevRect.Left, a.prevRect.Top,
+		a.prevRect.Right-a.prevRect.Left, a.prevRect.Bottom-a.prevRect.Top,
 		swpNoZOrder|swpFrameChange|swpNoActivate)
 	if a.prevMax {
 		pShowWindow.Call(uintptr(a.hwnd), uintptr(swMaximize))
@@ -786,6 +854,8 @@ func (a *app) injectHostBridge() {
   function post(msg){ try{ window.chrome.webview.postMessage(JSON.stringify(msg)); }catch(e){} }
   window.PSE_HOST = {
     kind: "desktop-go",
+    desktop: true,
+    version: "0.3.0",
     kv: {
       get: function(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } },
       set: function(k,v){ try{ localStorage.setItem(k, String(v)); return true; }catch(e){ return false; } },
@@ -886,14 +956,60 @@ func (a *app) onWebMessage(s string) {
 	}
 }
 
-// logWinState：打印窗口当前几何/全屏状态（用于验收证据）
+// offscreenX/offscreenY 是验收模式（--pse-offscreen）下窗口的真实坐标：
+// 屏幕外，肉眼看不到、不进 Alt-Tab，但窗口仍然 visible，PrintWindow 抓帧照常出图。
+const (
+	offscreenX = -32000
+	offscreenY = -32000
+)
+
+// placeWindow 是 SetWindowPos 的统一入口：离屏验收模式下把坐标换成屏幕外（尺寸不变）。
+// 逻辑坐标由调用方记到 a.logRect，日志与 window-state.json 用的是逻辑坐标。
+func (a *app) placeWindow(x, y, w, h int32, flags uintptr) {
+	if a.offscreen {
+		x, y = offscreenX, offscreenY
+	}
+	pSetWindowPos.Call(uintptr(a.hwnd), 0,
+		uintptr(int2u(int64(x))), uintptr(int2u(int64(y))),
+		uintptr(int2u(int64(w))), uintptr(int2u(int64(h))), flags)
+}
+
+// winRect 返回窗口矩形。
+// 正常模式就是真实的 GetWindowRect；离屏验收模式返回逻辑矩形（尺寸也取逻辑值，见下），
+// 否则 -32000 会被写进 window-state.json，用户的正式版下次启动就会开到屏幕外。
+//
+// 离屏模式为什么不合并「真实尺寸」：窗口一旦被最小化，getWindowRect 给的是图标矩形
+// （实测 160x28、客户区 0x0），把它的尺寸合进来会写出一个退化的窗口状态。
+// 离屏模式是验收专用（窗口永远在 -32000,-32000，尺寸只在 placeWindow 里变），
+// 所有改变几何的路径（启动 / WM_DPICHANGED / 全屏 / --pse-move）都会同步 a.logRect，
+// 因此直接用 logRect 是权威且可复现的；logRect 为空时才回落到真实矩形。
+func (a *app) winRect() (rect, bool) {
+	var r rect
+	if ret, _, _ := pGetWindowRect.Call(uintptr(a.hwnd), uintptr(unsafe.Pointer(&r))); ret == 0 {
+		return rect{}, false
+	}
+	if a.offscreen {
+		if lr := a.logRect; lr.Right > lr.Left && lr.Bottom > lr.Top {
+			return lr, true
+		}
+	}
+	return r, true
+}
+
+// logWinState：打印窗口当前几何/全屏状态（用于验收证据）。
+// rect= 是逻辑窗口矩形（正常模式下与真实矩形相同），屏幕位置= 是窗口当前真正所在的坐标。
 func (a *app) logWinState(tag string) {
 	style, _, _ := pGetWindowLongPtr.Call(uintptr(a.hwnd), gwlpStyle)
-	var r rect
-	pGetWindowRect.Call(uintptr(a.hwnd), uintptr(unsafe.Pointer(&r)))
-	logf("%s: rect=%d,%d %dx%d fullscreen=%v caption=%v thickframe=%v maximized=%v",
+	var real rect
+	pGetWindowRect.Call(uintptr(a.hwnd), uintptr(unsafe.Pointer(&real)))
+	r, ok := a.winRect()
+	if !ok {
+		r = real
+	}
+	logf("%s: rect=%d,%d %dx%d fullscreen=%v caption=%v thickframe=%v maximized=%v iconic=%v 屏幕位置=%d,%d",
 		tag, r.Left, r.Top, r.Right-r.Left, r.Bottom-r.Top,
-		a.fullscreen, style&wsCaption != 0, style&wsThickFrame != 0, isZoomed(a.hwnd))
+		a.fullscreen, style&wsCaption != 0, style&wsThickFrame != 0, isZoomed(a.hwnd), isIconic(a.hwnd),
+		real.Left, real.Top)
 }
 
 // pressKey：合成一次按键（走真实输入路径，验证 AcceleratorKeyCallback）
@@ -1066,9 +1182,9 @@ func (a *app) testSequence() {
 	if a.opt.move != "" {
 		if x, y, w, h, ok := parseMove(a.opt.move); ok {
 			logf("move-request = %d,%d %dx%d", x, y, w, h)
-			pSetWindowPos.Call(uintptr(a.hwnd), 0,
-				uintptr(int2u(int64(x))), uintptr(int2u(int64(y))),
-				uintptr(int2u(int64(w))), uintptr(int2u(int64(h))), swpNoZOrder)
+			mx, my, mw, mh := int32(x), int32(y), int32(w), int32(h)
+			a.logRect = rect{Left: mx, Top: my, Right: mx + mw, Bottom: my + mh}
+			a.placeWindow(mx, my, mw, mh, swpNoZOrder)
 			time.Sleep(700 * time.Millisecond)
 			a.logWinState("after-move")
 		} else {
@@ -1182,6 +1298,80 @@ func (a *app) resizeWebView() {
 	a.chromium.Resize()
 }
 
+// colorRef 组装 Win32 COLORREF（0x00BBGGRR）
+func colorRef(r, g, b uint8) uintptr {
+	return uintptr(r) | uintptr(g)<<8 | uintptr(b)<<16
+}
+
+// guidT 是 Win32 GUID 的内存布局（与 windows.GUID 一致，这里自己定义以便直接传指针）
+type guidT struct {
+	Data1 uint32
+	Data2 uint16
+	Data3 uint16
+	Data4 [8]byte
+}
+
+// iidICoreWebView2Controller2 = {c979903e-d4ca-4228-92eb-47ee3fa96eab}
+var iidController2 = guidT{Data1: 0xc979903e, Data2: 0xd4ca, Data3: 0x4228,
+	Data4: [8]byte{0x92, 0xeb, 0x47, 0xee, 0x3f, 0xa9, 0x6e, 0xab}}
+
+// applyDefaultBackground 把 WebView2 的默认背景色设成页面底色（UI 线程调用）。
+// WebView2 默认背景是白色：冷启动时从 Embed 到页面首帧之间会整屏白（实测约 3 秒），
+// 对深色应用就是明显的白屏闪烁。设成 index.html 的 --bg 后首帧就是深色。
+//
+// 不用库里现成的 GetICoreWebView2Controller2/PutDefaultBackgroundColor：库的
+// GetDefaultBackgroundColor 把值出参（COREWEBVIEW2_COLOR*）声明成了二级指针，
+// 颜色值被当成指针解引用 → 访问违例 0xC0000005（实测崩在 got.A 上，故障地址正好是
+// 颜色值本身）。这里自己 QueryInterface + 按槽位调用，出参用 uint32。
+func (a *app) applyDefaultBackground() {
+	c := a.chromium.GetController()
+	if c == nil {
+		logf("default-background: controller 为空，跳过")
+		return
+	}
+	qi := ctrlVtblSlot(unsafe.Pointer(c), ctrlSlotQueryIntf)
+	if qi == 0 {
+		logf("default-background: 取不到 QueryInterface，跳过")
+		return
+	}
+	var c2 unsafe.Pointer
+	hr, _, _ := syscall.SyscallN(qi,
+		uintptr(unsafe.Pointer(c)),
+		uintptr(unsafe.Pointer(&iidController2)),
+		uintptr(unsafe.Pointer(&c2)))
+	if int32(hr) < 0 || c2 == nil {
+		logf("default-background: 当前 Runtime 不支持 ICoreWebView2Controller2（hr=0x%08X），跳过", uint32(hr))
+		return
+	}
+	defer func() {
+		if rel := ctrlVtblSlot(c2, ctrlSlotRelease); rel != 0 {
+			_, _, _ = syscall.SyscallN(rel, uintptr(c2))
+		}
+	}()
+
+	// COREWEBVIEW2_COLOR 是 {A,R,G,B} 四字节结构，按 ABI 当 32 位整数传
+	col := uint32(0xff) | uint32(pageBGR)<<8 | uint32(pageBGG)<<16 | uint32(pageBGB)<<24
+	put := ctrlVtblSlot(c2, ctrl2SlotPutBgColor)
+	if put == 0 {
+		logf("default-background: 取不到 put_DefaultBackgroundColor，跳过")
+		return
+	}
+	hr, _, _ = syscall.SyscallN(put, uintptr(c2), uintptr(col))
+	if int32(hr) < 0 {
+		logf("default-background: 设置失败（hr=0x%08X）", uint32(hr))
+		return
+	}
+	if get := ctrlVtblSlot(c2, ctrl2SlotGetBgColor); get != 0 {
+		var got uint32
+		if h2, _, _ := syscall.SyscallN(get, uintptr(c2), uintptr(unsafe.Pointer(&got))); int32(h2) >= 0 {
+			logf("default-background = #%02X%02X%02X%02X（页面 --bg #%02X%02X%02X，消除冷启动白屏）",
+				byte(got), byte(got>>8), byte(got>>16), byte(got>>24), pageBGR, pageBGG, pageBGB)
+			return
+		}
+	}
+	logf("default-background: 已设成 #%02X%02X%02X（回读不可用）", pageBGR, pageBGG, pageBGB)
+}
+
 // logWebViewBounds：打印 WebView2 controller 实际 bounds（必须在 UI 线程调用）
 func (a *app) logWebViewBounds() {
 	done := make(chan struct{})
@@ -1281,6 +1471,19 @@ func jsLoad(slot string) string {
 // ---------------------------------------------------------------- 截图
 
 func (a *app) captureTo(path string) {
+	// 窗口被最小化时窗口矩形是图标矩形、客户区 0x0，截出来必然是废图。
+	// 离屏验收模式先还原窗口并重新摆回屏幕外；正常模式只告警（用户自己最小化了窗口）。
+	if isIconic(a.hwnd) {
+		if a.offscreen {
+			logf("capture: 窗口处于最小化（图标矩形），先 SW_RESTORE 再摆回屏幕外")
+			pShowWindow.Call(uintptr(a.hwnd), uintptr(swRestore))
+			a.placeWindow(offscreenX, offscreenY, a.logRect.Right-a.logRect.Left,
+				a.logRect.Bottom-a.logRect.Top, swpNoZOrder|swpNoActivate)
+			time.Sleep(500 * time.Millisecond)
+		} else {
+			logf("capture: 窗口处于最小化，截图内容不可信（请先还原窗口）")
+		}
+	}
 	var r rect
 	pGetWindowRect.Call(uintptr(a.hwnd), uintptr(unsafe.Pointer(&r)))
 	w := int(r.Right - r.Left)
@@ -1298,9 +1501,14 @@ func (a *app) captureTo(path string) {
 		pwOK, scrOK   bool
 	)
 	pwImg, pwOK = capturePrintWindow(a.hwnd, w, h)
-	pSetForeground.Call(uintptr(a.hwnd))
-	time.Sleep(700 * time.Millisecond)
-	scrImg, scrOK = captureScreen(r, w, h)
+	if !a.offscreen {
+		// 离屏验收模式下窗口在屏幕外，屏幕 BitBlt 拍到的是桌面，没有意义 → 只走 PrintWindow
+		pSetForeground.Call(uintptr(a.hwnd))
+		time.Sleep(700 * time.Millisecond)
+		scrImg, scrOK = captureScreen(r, w, h)
+	} else {
+		logf("capture: 离屏模式，只用 PrintWindow（屏幕 BitBlt 拍到的是桌面）")
+	}
 
 	// 客户区在整窗图中的偏移（左上角），用于只对游戏画面打分
 	cx, cy := clientOriginOffset(a.hwnd, r)
@@ -1461,6 +1669,211 @@ func contentScore(img *image.RGBA, offX, offY, cw, ch int) int {
 	return len(seen)
 }
 
+// ---------------------------------------------------------------- 冷启动白屏取证
+
+// frameStat 是一帧的亮度统计。只统计窗口客户区（用户真正看到游戏画面的地方），
+// 标题栏/边框不计入 —— 否则深浅色主题的标题栏会把统计带偏。
+type frameStat struct {
+	t         time.Duration
+	visible   bool
+	fg        bool
+	mean      float64
+	fracLight float64 // 亮度 ≥ 200 的像素占比
+	fracNear  float64 // 亮度 ≥ 240 的像素占比
+}
+
+func (s frameStat) verdict() string {
+	switch {
+	case !s.visible:
+		return "pre-window"
+	case s.fracNear >= 0.5 || (s.fracLight >= 0.5 && s.mean >= 180):
+		return "WHITE"
+	case s.fracLight >= 0.25 || s.mean >= 160:
+		return "LIGHT"
+	default:
+		return "dark"
+	}
+}
+
+func (s frameStat) String() string {
+	return fmt.Sprintf("t=%5dms %-10s mean=%5.1f light=%5.1f%% near=%5.1f%%",
+		s.t.Milliseconds(), s.verdict(), s.mean, s.fracLight*100, s.fracNear*100)
+}
+
+// statFrame 统计客户区亮度分布（每 3 像素采样一次，足够判定「以白色/浅色为主」）。
+func statFrame(img *image.RGBA, offX, offY, cw, ch int) frameStat {
+	var st frameStat
+	if img == nil || cw <= 0 || ch <= 0 {
+		return st
+	}
+	b := img.Bounds()
+	n, sum, light, near := 0, 0.0, 0, 0
+	for y := offY; y < offY+ch; y += 3 {
+		if y < b.Min.Y || y >= b.Max.Y {
+			continue
+		}
+		for x := offX; x < offX+cw; x += 3 {
+			if x < b.Min.X || x >= b.Max.X {
+				continue
+			}
+			c := img.RGBAAt(x, y)
+			l := (299*int(c.R) + 587*int(c.G) + 114*int(c.B)) / 1000
+			n++
+			sum += float64(l)
+			if l >= 200 {
+				light++
+			}
+			if l >= 240 {
+				near++
+			}
+		}
+	}
+	if n == 0 {
+		return st
+	}
+	st.mean = sum / float64(n)
+	st.fracLight = float64(light) / float64(n)
+	st.fracNear = float64(near) / float64(n)
+	return st
+}
+
+func lighterThan(a, b frameStat) bool {
+	return a.fracLight > b.fracLight || (a.fracLight == b.fracLight && a.mean > b.mean)
+}
+
+func saveFrame(path string, img *image.RGBA) bool {
+	f, err := os.Create(path)
+	if err != nil {
+		logf("抓帧写入失败 %s: %v", path, err)
+		return false
+	}
+	defer f.Close()
+	if err := png.Encode(f, img); err != nil {
+		logf("抓帧编码失败 %s: %v", path, err)
+		return false
+	}
+	return true
+}
+
+// frameBurst 抓取启动过程的连续帧，回答「到底有没有白屏帧」。
+// 抓的是屏幕 BitBlt（用户真正看到的像素），不是 WebView2 的回读；
+// 每帧记录统计量，只把前 8 帧、最亮的一帧和最后一帧存 PNG（全存没必要且会拖慢启动）。
+func (a *app) frameBurst(hwnd windows.Handle, dir string) {
+	interval := time.Duration(a.opt.framesMs) * time.Millisecond
+	if interval <= 0 {
+		interval = 100 * time.Millisecond
+	}
+	n := a.opt.framesN
+	if n <= 0 {
+		n = 40
+	}
+	var (
+		lines                []string
+		stats                []frameStat
+		visN, whiteN, lightN int
+		worst                frameStat
+		worstImg             *image.RGBA
+		haveWorst            bool
+		lastImg              *image.RGBA
+	)
+	for i := 0; i < n; i++ {
+		if i > 0 {
+			time.Sleep(interval)
+		}
+		t := time.Since(procStart)
+		var r rect
+		if ret, _, _ := pGetWindowRect.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&r))); ret == 0 {
+			break
+		}
+		w, h := int(r.Right-r.Left), int(r.Bottom-r.Top)
+		if w <= 0 || h <= 0 {
+			continue
+		}
+		var img *image.RGBA
+		var ok bool
+		if a.offscreen {
+			// 离屏模式：窗口在屏幕外，屏幕 BitBlt 只会拍到桌面 → 用 PrintWindow
+			// （PW_RENDERFULLCONTENT 渲染的是窗口自身，离屏窗口照样出图）。
+			img, ok = capturePrintWindow(hwnd, w, h)
+		} else {
+			img, ok = captureScreen(r, w, h)
+		}
+		if !ok {
+			continue
+		}
+		cx, cy := clientOriginOffset(hwnd, r)
+		cw, ch := clientSize(hwnd)
+		st := statFrame(img, cx, cy, cw, ch)
+		st.t = t
+		vis, _, _ := pIsWindowVisible.Call(uintptr(hwnd))
+		st.visible = vis != 0 && cw > 0 && ch > 0
+		fgw, _, _ := pGetForegroundWindow.Call()
+		st.fg = windows.Handle(fgw) == hwnd
+
+		// 交叉验证：屏幕 BitBlt 可能拍到盖在我们窗口上面的别的窗口。
+		// PrintWindow(PW_RENDERFULLCONTENT) 渲染的是窗口自身，两者都判「白」才算真的白屏帧。
+		pwAgree := true
+		pwVerdict := "n/a"
+		if a.offscreen {
+			pwVerdict = "primary" // 离屏模式：上面取的就是 PrintWindow
+		} else if ppt, ok := capturePrintWindow(hwnd, w, h); ok {
+			ps := statFrame(ppt, cx, cy, cw, ch)
+			ps.visible = st.visible
+			pwVerdict = ps.verdict()
+			if st.visible && st.verdict() != "dark" && pwVerdict == "dark" {
+				pwAgree = false // 屏幕上有东西盖着我们 → 这帧不算数
+			}
+		}
+
+		stats = append(stats, st)
+		if st.visible && pwAgree {
+			visN++
+			switch st.verdict() {
+			case "WHITE":
+				whiteN++
+				lightN++
+			case "LIGHT":
+				lightN++
+			}
+		}
+		if !haveWorst || lighterThan(st, worst) {
+			worst, worstImg, haveWorst = st, img, true
+		}
+		lastImg = img
+		lines = append(lines, fmt.Sprintf("frame %02d %s fg=%v printwindow=%s", i, st.String(), st.fg, pwVerdict))
+		if i < 8 {
+			saveFrame(filepath.Join(dir, fmt.Sprintf("frame-%02d.png", i)), img)
+		}
+	}
+
+	verdictTxt := "无（没有任何白色/浅色帧）"
+	if lightN > 0 {
+		verdictTxt = fmt.Sprintf("有 %d 帧白色、共 %d 帧浅色", whiteN, lightN)
+	}
+	frameSrc := "屏幕 BitBlt"
+	if a.offscreen {
+		frameSrc = "PrintWindow（离屏模式，无可见窗口）"
+	}
+	summary := fmt.Sprintf("frames: n=%d visible=%d WHITE=%d LIGHT=%d | 最亮 %s | 白屏=%s [抓帧源=%s]",
+		len(stats), visN, whiteN, lightN, worst.String(), verdictTxt, frameSrc)
+	logf("%s", summary)
+	if haveWorst && worstImg != nil {
+		saveFrame(filepath.Join(dir, "frame-worst.png"), worstImg)
+	}
+	if lastImg != nil {
+		saveFrame(filepath.Join(dir, "frame-last.png"), lastImg)
+	}
+	f, err := os.Create(filepath.Join(dir, "frames-summary.txt"))
+	if err == nil {
+		fmt.Fprintf(f, "冷启动抓帧（%s，间隔 %dms，t 相对进程启动）\n\n", frameSrc, interval.Milliseconds())
+		for _, l := range lines {
+			fmt.Fprintln(f, l)
+		}
+		fmt.Fprintf(f, "\n%s\n", summary)
+		_ = f.Close()
+	}
+}
+
 // isBlank 判断整幅图是否单一颜色（PrintWindow 抓不到 DComp 时会给全黑）
 func isBlank(img *image.RGBA) bool {
 	b := img.Bounds()
@@ -1512,9 +1925,23 @@ func (a *app) saveStateNow() {
 	if a.hwnd == 0 {
 		return
 	}
+	// 最小化时窗口矩形是「图标矩形」（约 160x28，位于 -32000,-32000）、客户区 0x0。
+	// 把它写进 window-state.json，用户下次启动就会得到一个 160x28 的小窗（或落到默认值），
+	// 丢失原来的尺寸位置。所以最小化退出时保留上一次的有效状态，不覆盖。
+	if isIconic(a.hwnd) {
+		logf("window-state: 跳过写入（窗口处于最小化，图标矩形不可用，保留上一次的有效状态）")
+		return
+	}
 	st := currentState(a.hwnd, a)
+	w, h := st.W, st.H
+	if w < minWinW/2 || h < minWinH/2 {
+		logf("window-state: 跳过写入（矩形退化 %dx%d，保留上一次的有效状态）", w, h)
+		return
+	}
 	data, _ := json.Marshal(st)
-	_ = os.WriteFile(filepath.Join(a.opt.userData, stateFile), data, 0o644)
+	if err := os.WriteFile(filepath.Join(a.opt.userData, stateFile), data, 0o644); err == nil {
+		logf("window-state = %+v（退出时保存）", st)
+	}
 }
 
 func saveWinState(userData string, a *app) {
@@ -1533,6 +1960,13 @@ func currentState(hwnd windows.Handle, a *app) winState {
 		return winState{X: int(a.prevRect.Left), Y: int(a.prevRect.Top),
 			W: int(a.prevRect.Right - a.prevRect.Left), H: int(a.prevRect.Bottom - a.prevRect.Top),
 			Maximized: a.prevMax}
+	}
+	if a != nil {
+		// 离屏验收模式：用逻辑矩形，绝不把 -32000 写进 window-state.json
+		if r, ok := a.winRect(); ok {
+			return winState{X: int(r.Left), Y: int(r.Top),
+				W: int(r.Right - r.Left), H: int(r.Bottom - r.Top), Maximized: isZoomed(hwnd)}
+		}
 	}
 	var r rect
 	pGetWindowRect.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&r)))
@@ -1644,6 +2078,13 @@ func monitorFromWindow(hwnd windows.Handle) uintptr {
 
 func isZoomed(hwnd windows.Handle) bool {
 	r, _, _ := pIsZoomed.Call(uintptr(hwnd))
+	return r != 0
+}
+
+// isIconic：窗口是否处于最小化状态。最小化时 GetWindowRect 返回的是「图标矩形」
+// （约 160x28，位于 -32000,-32000），GetClientRect 返回 0x0 —— 拿它写存档/截图都是错的。
+func isIconic(hwnd windows.Handle) bool {
+	r, _, _ := pIsIconic.Call(uintptr(hwnd))
 	return r != 0
 }
 
