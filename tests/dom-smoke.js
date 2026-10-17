@@ -505,6 +505,67 @@ step('日志「仅我方 / 全部世界」切换 + 玩家消息不被世界要�
   if (document.getElementById('log').innerHTML.indexOf('我方测试消息') < 0) throw new Error('2000 条要闻后日志面板看不到玩家消息');
 });
 
+step('和平会议「吞并」真实点击生效（空操作回归）', () => {
+  const g = PSE.Game;
+  const w = g.world;
+  const UI = PSE.UI;
+  const swiss = w.provinces.filter((p) => p.owner === 'SWI');
+  if (!swiss.length) throw new Error('没有瑞士的省份，前置不成立');
+  const me = w.playerTag;
+  w.countries.SWI.capitulated = true;
+  w.countries.SWI.annexedBy = undefined;
+  for (const p of swiss) { p.controller = me; p.occupiedBy = me; }
+  w.peaceConference = { defeated: 'SWI', main: w.playerTag, options: [], h: w.hour, playerChoice: null };
+  const notes = [];
+  const origToast = UI.toast;
+  UI.toast = (msg) => { notes.push(msg); };
+  try {
+    UI.renderPeace(g);
+    const modal = document.getElementById('peaceModal');
+    const btns = document.getElementById('peaceOptions').querySelectorAll('[data-peace]');
+    if (btns.length !== 3) throw new Error('处置选项数不对：' + btns.length);
+    if (modal.classList.contains('hidden')) throw new Error('会议弹窗应先显示');
+    btns[0].click();                       // 真派发 click →「吞并」
+    if (w.countries.SWI.annexedBy !== me) throw new Error('点吞并没有设置 annexedBy（空操作回归）');
+    if (!swiss.every((p) => p.owner === me && p.controller === me)) throw new Error('省份 owner/controller 未全部转入玩家');
+    if (!(w.log || []).some((e) => /吞并了 瑞士/.test(e.text))) throw new Error('日志缺少「吞并了 瑞士」');
+    if (!notes.some((m) => /已吞并 瑞士/.test(m))) throw new Error('没有成功提示：' + notes.join(' / '));
+    if (w.peaceConference !== null) throw new Error('成功后会议应关闭');
+    if (!modal.classList.contains('hidden')) throw new Error('成功后弹窗应隐藏');
+    if (w.speed === 0) throw new Error('成功后应恢复游戏速度');
+  } finally { UI.toast = origToast; }
+});
+
+step('和平会议处置失败时不关窗（保留会议可重试）', () => {
+  const g = PSE.Game;
+  const w = g.world;
+  const UI = PSE.UI;
+  const pol = w.provinces.filter((p) => p.owner === 'POL');
+  if (!pol.length) throw new Error('没有波兰的省份，前置不成立');
+  for (const p of pol) p.controller = 'GER';
+  w.countries.POL.capitulated = true;
+  w.countries.POL.annexedBy = 'GER';       // 模拟「已被吞并过」→ 处置必定失败
+  w.peaceConference = { defeated: 'POL', main: w.playerTag, options: [], h: w.hour, playerChoice: null };
+  const notes = [];
+  const origToast = UI.toast;
+  UI.toast = (msg) => { notes.push(msg); };
+  try {
+    UI.renderPeace(g);
+    const modal = document.getElementById('peaceModal');
+    const btns = document.getElementById('peaceOptions').querySelectorAll('[data-peace]');
+    btns[0].click();
+    if (w.peaceConference === null) throw new Error('失败时不该清空会议');
+    if (modal.classList.contains('hidden')) throw new Error('失败时弹窗不该关闭');
+    if (!notes.some((m) => /失败/.test(m))) throw new Error('失败没有给出原因：' + notes.join(' / '));
+    if (!pol.every((p) => p.owner === 'POL')) throw new Error('失败时不该改动省份归属');
+  } finally {
+    UI.toast = origToast;
+    w.countries.POL.annexedBy = undefined;
+    w.peaceConference = null;
+    PSE.UI.renderPeace(g);
+  }
+});
+
 step('长时间运行（1 年）无异常且状态有限', () => {
   const w = PSE.Game.world;
   for (let i = 0; i < 24 * 365; i++) PSE.Sim.tickHour(w);

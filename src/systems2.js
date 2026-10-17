@@ -680,22 +680,34 @@
         };
         if (main === w.playerTag)
             w.speed = 0; // 等待玩家选择
-        else
-            Peace.apply(w, 'annex');
+        else {
+            // AI 处置：吞并失败（例如已被吞并）就退一步，别让会议卡住
+            for (const ch of ['annex', 'puppet', 'liberate'])
+                if (Peace.applyEx(w, ch).ok)
+                    break;
+            if (w.peaceConference)
+                w.peaceConference = null; // 三种都不成：清掉，避免悬挂会议
+        }
         return w.peaceConference;
     };
-    Peace.apply = function (w, choice) {
+    Peace.applyEx = function (w, choice) {
         const pc = w.peaceConference;
         if (!pc)
-            return false;
+            return { ok: false, msg: '当前没有进行中的和平会议' };
         const d = w.countries[pc.defeated];
         const main = w.countries[pc.main];
         if (!d || !main) {
             w.peaceConference = null;
-            return false;
+            return { ok: false, msg: '会议数据已失效' };
         }
+        let msg = '';
         if (choice === 'annex') {
-            PSE.Diplo.annexCountry(w, main.tag, d.tag);
+            const provs = w.provinces.filter((p) => p.owner === d.tag).length;
+            // 关键：检查结果，失败就不要清空会议（返回 false 让弹窗留在原地可重试）
+            if (!PSE.Diplo.annexCountry(w, main.tag, d.tag)) {
+                return { ok: false, msg: '吞并「' + d.name + '」失败：该国已被吞并过了' };
+            }
+            msg = '已吞并 ' + d.name + '（' + provs + ' 个省并入 ' + main.name + '）';
         }
         else if (choice === 'puppet') {
             d.capitulated = false;
@@ -708,8 +720,10 @@
             d.puppetOf = main.tag;
             if (!main.puppets)
                 main.puppets = [];
-            main.puppets.push(d.tag);
+            if (main.puppets.indexOf(d.tag) < 0)
+                main.puppets.push(d.tag);
             PSE.log(w, main.name + ' 扶植傀儡政权：' + d.name, 'diplo', main.tag);
+            msg = '已扶植傀儡政权：' + d.name;
         }
         else if (choice === 'liberate') {
             d.capitulated = false;
@@ -721,9 +735,17 @@
             d.relations[main.tag] = U.clamp((d.relations[main.tag] || 0) + 60, -200, 200);
             main.relations[d.tag] = U.clamp((main.relations[d.tag] || 0) + 60, -200, 200);
             PSE.log(w, main.name + ' 恢复了 ' + d.name + ' 的独立', 'diplo', main.tag);
+            msg = '已恢复 ' + d.name + ' 的独立';
+        }
+        else {
+            return { ok: false, msg: '未知的处置方式：' + choice };
         }
         w.peaceConference = null;
-        return true;
+        return { ok: true, msg };
+    };
+    // 布尔接口保持不变（内部调用方照旧），失败原因走 applyEx
+    Peace.apply = function (w, choice) {
+        return Peace.applyEx(w, choice).ok;
     };
     // ============================================================
     // 8. 傀儡自制度
@@ -880,7 +902,8 @@
                 return { ok: true, msg: '已切换为 ' + PSE.COUNTRY_NAME[tag] };
             } },
         annex: { desc: 'annex <国家代码>：吞并该国', fn: (w, args) => { const tag = (args[0] || '').toUpperCase(); if (!w.countries[tag])
-                return { ok: false, msg: '未知国家' }; PSE.Diplo.annexCountry(w, w.playerTag, tag); return { ok: true, msg: '已吞并 ' + PSE.COUNTRY_NAME[tag] }; } },
+                return { ok: false, msg: '未知国家' }; if (tag === w.playerTag)
+                return { ok: false, msg: '不能吞并自己' }; return PSE.Diplo.annexCountry(w, w.playerTag, tag) ? { ok: true, msg: '已吞并 ' + PSE.COUNTRY_NAME[tag] } : { ok: false, msg: PSE.COUNTRY_NAME[tag] + ' 已经被吞并过了' }; } },
         focus: { desc: 'focus <国策ID>：立即完成国策', fn: (w, args) => { const c = w.countries[w.playerTag]; const node = PSE.Sim.focusNode(c, args[0]); if (!node)
                 return { ok: false, msg: '未知国策' }; PSE.Sim.completeFocus(w, c, node); return { ok: true, msg: '已完成 ' + node.name }; } },
         war: { desc: 'war <国家代码>：对其宣战', fn: (w, args) => { const tag = (args[0] || '').toUpperCase(); if (!w.countries[tag])

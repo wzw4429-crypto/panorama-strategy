@@ -1453,7 +1453,10 @@
 
   Diplo.annexCountry = function (w, byTag, tag) {
     const c = w.countries[tag];
-    if (!c || c.capitulated) return;
+    const by = w.countries[byTag];
+    // 幂等守卫只认「已经被吞并过」：不能拿 capitulated 当拒绝条件——和平会议处置的战败国
+    // 在投降时已经 capitulated=true，那样写会让「吞并」静默失败（玩家点了没反应、会议又关了）
+    if (!c || !by || tag === byTag || c.annexedBy) return false;
     for (const p of w.provinces) {
       if (p.owner === tag) {
         p.owner = byTag;
@@ -1461,7 +1464,7 @@
         p.occupiedBy = null;
         p.resistance = 8;      // 合并初期少量抵抗
         p.compliance = 70;
-        p.originalOwner = p.originalOwner; // 保留原主
+        if (!p.originalOwner) p.originalOwner = tag; // 只记录原主，别覆盖已有记录（原来是自赋值空操作）
       }
     }
     c.capitulated = true;
@@ -1481,6 +1484,7 @@
       return true;
     });
     checkVictory(w);
+    return true;
   };
 
   Diplo.annexState = function (w, byTag, tag, frac) {

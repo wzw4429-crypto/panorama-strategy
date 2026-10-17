@@ -993,5 +993,126 @@ section('19. 玩家日志保底（无关要闻先淘汰，玩家消息不会被�
 })();
 
 // ============================================================
+section('20. 和平会议处置（吞并空操作回归 + 傀儡 / 恢复独立）');
+(function peaceConference() {
+  // 走真实链路：宣战 → 占全省 → 每日结算投降 → 和平会议
+  function openConference() {
+    const ww = mkWorld('GER');
+    PSE.Diplo.declareWar(ww, 'GER', 'SWI', { silent: true });
+    const swiss = ww.provinces.filter((p) => p.owner === 'SWI');
+    for (const p of swiss) { p.controller = 'GER'; p.occupiedBy = 'GER'; }
+    PSE.World.recomputeVP(ww);
+    runWorld(ww, 48);
+    return { w: ww, swiss };
+  }
+
+  // ---- A. 完整链路 + 吞并（修复前是静默空操作）----
+  {
+    const { w: g, swiss } = openConference();
+    ok(g.countries.SWI.capitulated === true, '占领全境后瑞士投降');
+    ok(!!g.peaceConference && g.peaceConference.defeated === 'SWI', '投降后召开和平会议（战败国=瑞士）');
+    ok(!!g.peaceConference && g.peaceConference.main === 'GER', '玩家（德国）拿到处置权');
+    const r = PSE.Peace.applyEx(g, 'annex');
+    ok(r.ok === true, '点吞并返回成功：「' + r.msg + '」');
+    const got = g.provinces.filter((p) => p.owner === 'GER' && p.originalOwner === 'SWI');
+    ok(swiss.length > 0 && got.length === swiss.length, swiss.length + ' 个省 owner 全部变 GER（实际 ' + got.length + '）');
+    ok(g.provinces.every((p) => p.owner !== 'SWI'), '瑞士不再拥有任何省份');
+    ok(g.countries.SWI.annexedBy === 'GER' && g.countries.SWI.capitulated === true, 'annexedBy 已设置、投降状态保持');
+    ok((g.log || []).some((e) => /吞并了 瑞士/.test(e.text)), '日志含「吞并了 瑞士」');
+    ok(g.peaceConference === null, '处置成功后会议关闭');
+    ok(PSE.Peace.applyEx(g, 'annex').ok === false, '没有会议时再调用返回失败，不抛异常');
+  }
+
+  // ---- B. 处置失败时会议保留（玩家可重试）----
+  {
+    const { w: g } = openConference();
+    g.countries.SWI.annexedBy = 'GER';           // 模拟「已被吞并过」
+    const pc = g.peaceConference;
+    const r = PSE.Peace.applyEx(g, 'annex');
+    ok(r.ok === false && /失败/.test(r.msg), '吞并失败会给出原因：「' + r.msg + '」');
+    ok(g.peaceConference === pc, '失败时会议保留（弹窗不关，可重试）');
+    g.countries.SWI.annexedBy = null;
+    ok(PSE.Peace.apply(g, 'annex') === true, '布尔接口不变：清掉状态后重试成功');
+    ok(g.peaceConference === null, '重试成功后会议关闭');
+  }
+
+  // ---- C. 未知处置方式 ----
+  {
+    const { w: g } = openConference();
+    const pc = g.peaceConference;
+    const r = PSE.Peace.applyEx(g, 'bogus');
+    ok(r.ok === false && g.peaceConference === pc, '未知处置方式不生效、会议保留');
+  }
+
+  // ---- D. 扶植傀儡 ----
+  {
+    const { w: g, swiss } = openConference();
+    const r = PSE.Peace.applyEx(g, 'puppet');
+    ok(r.ok === true, '扶植傀儡返回成功：「' + r.msg + '」');
+    ok(g.countries.SWI.capitulated === false && g.countries.SWI.puppetOf === 'GER', '傀儡国：不再投降、puppetOf=GER');
+    ok(g.countries.GER.puppets.indexOf('SWI') >= 0, '德国的傀儡列表里有瑞士');
+    ok(swiss.every((p) => p.controller === 'SWI'), '其省份 controller 回到瑞士');
+    ok(swiss.every((p) => p.resistance === 25 && p.compliance === 45), '抵抗 25 / 合作 45');
+    ok(g.countries.SWI.annexedBy === undefined, '没有被吞并（无 annexedBy）');
+    ok(g.peaceConference === null && (g.log || []).some((e) => /扶植傀儡政权：瑞士/.test(e.text)), '会议关闭 + 日志含「扶植傀儡政权：瑞士」');
+  }
+
+  // ---- E. 恢复独立 ----
+  {
+    const { w: g, swiss } = openConference();
+    const before = g.countries.SWI.relations.GER || 0;
+    const r = PSE.Peace.applyEx(g, 'liberate');
+    ok(r.ok === true, '恢复独立返回成功：「' + r.msg + '」');
+    ok(g.countries.SWI.capitulated === false, '瑞士不再投降');
+    ok(swiss.every((p) => p.controller === 'SWI' && p.resistance === 10), '其省份 controller 回到瑞士、抵抗 10');
+    const rel = g.countries.SWI.relations.GER || 0;
+    ok(rel === Math.min(200, before + 60) && (g.countries.GER.relations.SWI || 0) >= 60, '双方关系各 +60（瑞士 ' + before + '→' + rel + '）');
+    ok(g.peaceConference === null && (g.log || []).some((e) => /恢复了 瑞士 的独立/.test(e.text)), '会议关闭 + 日志含「恢复了 瑞士 的独立」');
+  }
+
+  // ---- F. 控制台 annex 走同一守卫 ----
+  {
+    const g = mkWorld('GER');
+    const r1 = PSE.Console.run(g, 'annex SWI');
+    ok(r1.ok === true, '控制台 annex 首次成功：「' + r1.msg + '」');
+    const r2 = PSE.Console.run(g, 'annex SWI');
+    ok(r2.ok === false && /已经/.test(r2.msg), '重复吞并给出原因而不是假成功：「' + r2.msg + '」');
+    const r3 = PSE.Console.run(g, 'annex GER');
+    ok(r3.ok === false, '不能吞并自己：「' + r3.msg + '」');
+  }
+
+  // ---- G. AI 主导的和平会议：依次尝试处置，不留悬挂会议 ----
+  {
+    const g = mkWorld('GER');
+    PSE.Diplo.declareWar(g, 'ITA', 'SWI', { silent: true });   // 德国不参战 → main 是 AI
+    const austrian = g.provinces.filter((p) => p.owner === 'SWI');
+    for (const p of austrian) { p.controller = 'ITA'; p.occupiedBy = 'ITA'; }
+    PSE.World.recomputeVP(g);
+    runWorld(g, 48);
+    ok(g.countries.SWI.capitulated === true, '瑞士投降（AI 与瑞士的战争）');
+    ok(g.peaceConference === null, 'AI 主导时当场处置完，不留悬挂会议');
+    ok(g.countries.SWI.annexedBy === 'ITA', 'AI 首选吞并：annexedBy=ITA');
+    ok(austrian.length > 0 && austrian.every((p) => p.owner === 'ITA'), '瑞士各省并入意大利');
+    // 已被吞并的同一国再开会：annex 失败 → AI 退一步用傀儡处置
+    const pc2 = PSE.Peace.open(g, { attackers: ['ITA'], defenders: ['SWI'] }, 'SWI');
+    ok(pc2 === null && g.countries.SWI.puppetOf === 'ITA', 'annex 失败时 AI 退一步用傀儡处置，会议仍不悬挂');
+
+    // 未知处置方式：失败且保留会议（玩家弹窗可重试）
+    const g2 = mkWorld('GER');
+    PSE.Diplo.declareWar(g2, 'GER', 'SWI', { silent: true });
+    const sw = g2.provinces.filter((p) => p.owner === 'SWI');
+    for (const p of sw) { p.controller = 'GER'; p.occupiedBy = 'GER'; }
+    PSE.World.recomputeVP(g2);
+    runWorld(g2, 48);
+    const pcKeep = g2.peaceConference;
+    ok(!!pcKeep, '前置：玩家主导的会议已召开');
+    const bad = PSE.Peace.applyEx(g2, 'nonsense');
+    ok(bad.ok === false && /未知/.test(bad.msg), '未知处置方式给出原因：「' + bad.msg + '」');
+    ok(g2.peaceConference === pcKeep, '未知处置方式失败时会议保留');
+    ok(PSE.Peace.apply(g2, 'nonsense') === false, '布尔接口对未知处置方式返回 false');
+  }
+})();
+
+// ============================================================
 console.log('\n' + (failures === 0 ? '\x1b[32m全部通过\x1b[0m' : '\x1b[31m失败 ' + failures + ' 项\x1b[0m') + '（检查 ' + checks + ' 项）');
 process.exit(failures === 0 ? 0 : 1);

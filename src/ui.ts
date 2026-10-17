@@ -1455,11 +1455,18 @@
         '<div class="eventOpt"><button data-peace="puppet">扶植傀儡政权（保留政府，征收工厂与人力）</button></div>' +
         '<div class="eventOpt"><button data-peace="liberate">恢复独立（大幅改善关系）</button></div>');
       opts.querySelectorAll('[data-peace]').forEach((b: any) => b.onclick = () => {
-        PSE.Peace.apply(w, b.dataset.peace);
+        const r = PSE.Peace.applyEx(w, b.dataset.peace);
+        if (!r.ok) {
+          // 处置失败：会议留着让玩家重试，别什么都不发生就关窗（曾经的吞并空操作）
+          UI.toast(r.msg, 'warn');
+          UI.renderPeace(g);
+          return;
+        }
+        peaceSig = '';
         modal.classList.add('hidden');
         w.speed = g.lastSpeed || 2;
         UI.renderAll(g);
-        UI.toast('和平会议结束');
+        UI.toast(r.msg);
       });
     }
     w.speed = 0;
