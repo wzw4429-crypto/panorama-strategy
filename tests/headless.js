@@ -776,5 +776,91 @@ section('16. 海岸线数据（缺陷 A：内陆省不再被当成沿海/港口�
 })();
 
 // ============================================================
+section('17. 两栖登陆 / 空降的交战门槛（缺陷 B：未宣战不能打中立国）');
+(function invasionGate() {
+  const origPower = PSE.Navy.power, origControl = PSE.Navy.seaControl;
+  PSE.Navy.power = () => 100;          // 门槛测试只关心「交战」这一条，海军条件直接给足
+  PSE.Navy.seaControl = () => 0.9;
+
+  const invWorld = () => {
+    const nw = mkWorld('GER');
+    const st = nw.provinces.find((p) => p.name === '斯德哥尔摩');
+    const hamburg = nw.provinces.find((p) => p.name === '汉堡');
+    const d = nw.divisions.find((x) => x.tag === 'GER');
+    d.loc = hamburg.id; d.status = 'idle'; d.invasionTarget = null; d.path = []; d.paradrop = false;
+    return { nw: nw, st: st, hamburg: hamburg, d: d };
+  };
+
+  // (1)(2) 1936 开局德国与瑞典无战争：登陆/空降都必须被拒，且部队状态不变
+  {
+    const t = invWorld();
+    ok(PSE.World.areAtWar(t.nw, 'GER', 'SWE') === false, '前置：1936 开局 GER 与 SWE 无战争');
+    const r = PSE.Cmd.navalInvasion(t.nw, [t.d.id], t.st.id);
+    ok(r.ok === false && /宣战/.test(r.msg) && /瑞典/.test(r.msg),
+      '未宣战不能登陆中立国：' + r.msg);
+    ok(t.d.status === 'idle' && !t.d.invasionTarget && !t.d.invasionEta,
+      '被拒后部队状态不变（status=' + t.d.status + '，无 invading/eta）');
+
+    const rp = PSE.Cmd.paradrop(t.nw, [t.d.id], t.st.id);
+    ok(rp.ok === false && /宣战/.test(rp.msg) && /空降/.test(rp.msg),
+      '未宣战不能空降中立国：' + rp.msg);
+    ok(t.d.status === 'idle' && !t.d.invasionTarget, '空降被拒后部队状态同样不变');
+  }
+
+  // (3) 无控制方（NEU）的沿海省：明确说明没有可交战的控制方，而不是静默成功
+  {
+    const t = invWorld();
+    t.st.controller = 'NEU';
+    const r = PSE.Cmd.navalInvasion(t.nw, [t.d.id], t.st.id);
+    ok(r.ok === false && /未定领地/.test(r.msg), '无控制方省份被拒：' + r.msg);
+  }
+
+  // (4)(5) 宣战后可以登陆，2~4 天抵达并真的落在目标省
+  {
+    const t = invWorld();
+    PSE.Diplo.declareWar(t.nw, 'GER', 'SWE', { silent: true });
+    const r = PSE.Cmd.navalInvasion(t.nw, [t.d.id], t.st.id);
+    ok(r.ok === true && t.d.status === 'invading' && t.d.invasionTarget === t.st.id,
+      '宣战后登陆成功：' + r.msg);
+    const eta = t.d.invasionEta - t.nw.hour;
+    ok(eta >= 48 && eta <= 95, '登陆航渡 2~4 天（实际 ' + eta + ' 小时）');
+    for (let i = 0; i < 120 && t.d.status === 'invading'; i++) PSE.Sim.tickHour(t.nw);
+    ok(t.d.loc === t.st.id && t.d.status === 'idle', '抵达后落在目标省（现在 ' + t.d.loc + '）');
+    ok((t.nw.log || []).some((l) => /登陆\/着陆/.test(l.text)), '抵达写了登陆/着陆日志');
+  }
+
+  // (6) 航渡途中停战：取消登陆，不能落进和平省份
+  {
+    const t = invWorld();
+    PSE.Diplo.declareWar(t.nw, 'GER', 'SWE', { silent: true });
+    PSE.Cmd.navalInvasion(t.nw, [t.d.id], t.st.id);
+    const from = t.d.loc;
+    t.nw.wars = [];                                   // 中途停战
+    for (let i = 0; i < 120 && t.d.status === 'invading'; i++) PSE.Sim.tickHour(t.nw);
+    ok(t.d.loc === from && t.d.status === 'idle',
+      '停战后登陆取消、部队留在原地（' + from + ' → ' + t.d.loc + '）');
+    ok((t.nw.log || []).some((l) => /登陆\/空降取消/.test(l.text)), '取消写了日志');
+  }
+
+  // (7) 不误伤：己方 / 盟友控制的沿海省仍然可以投送（与移动规则 passable 同口径）
+  {
+    const t = invWorld();
+    const rOwn = PSE.Cmd.navalInvasion(t.nw, [t.d.id], t.hamburg.id);
+    ok(rOwn.ok === true, '己方沿海省仍可登陆（跨海投送）：' + rOwn.msg);
+    t.d.status = 'idle'; t.d.invasionTarget = null; t.d.invasionEta = 0;
+
+    const t2 = invWorld();
+    t2.nw.countries.GER.faction = 'Axis';
+    t2.nw.countries.SWE.faction = 'Axis';
+    ok(PSE.World.isAllied(t2.nw, 'GER', 'SWE') === true, '前置：GER 与 SWE 结为盟友');
+    const rAlly = PSE.Cmd.navalInvasion(t2.nw, [t2.d.id], t2.st.id);
+    ok(rAlly.ok === true, '盟友沿海省可以登陆：' + rAlly.msg);
+  }
+
+  PSE.Navy.power = origPower;
+  PSE.Navy.seaControl = origControl;
+})();
+
+// ============================================================
 console.log('\n' + (failures === 0 ? '\x1b[32m全部通过\x1b[0m' : '\x1b[31m失败 ' + failures + ' 项\x1b[0m') + '（检查 ' + checks + ' 项）');
 process.exit(failures === 0 ? 0 : 1);

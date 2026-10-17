@@ -359,10 +359,26 @@
   };
 
   // ---------- 两栖登陆 / 伞降 ----------
+  /**
+   * 登陆/空降的交战门槛：目标必须是「按移动规则可进入」的省份
+   * （己方 / 同阵营 / 交战国控制，或控制方中立但宗主国交战 —— 与 `Sim.passable` 同一口径）。
+   * 未宣战的第三方（如 1936 的瑞典）进不去 → 明确告诉玩家要先宣战。
+   */
+  function invasionGate(w, c, target, verb) {
+    if (PSE.Sim.passable(w, target, c.tag)) return null;
+    const ctrlTag = target.controller || target.owner;
+    const ctrl = w.countries[ctrlTag];
+    if (!ctrl || ctrlTag === 'NEU') {
+      return { ok: false, msg: '「' + target.name + '」是未定领地，没有可交战的对手，无法' + verb };
+    }
+    return { ok: false, msg: '必须先对 ' + ctrl.name + ' 宣战才能在此' + verb };
+  }
   PSE.Cmd.navalInvasion = function (w, divIds, targetProvId) {
     const c = w.countries[w.playerTag];
     const target = w.provinces[targetProvId];
     if (!c || !target || !target.coastal) return { ok: false, msg: '目标必须是沿海省份' };
+    const gate = invasionGate(w, c, target, '登陆');
+    if (gate) return gate;
     const divs = divIds.map((id) => w.divisions.find((d) => d.id === id)).filter((d) => d && d.tag === c.tag);
     if (!divs.length) return { ok: false, msg: '没有可用的部队' };
     const fromCoastal = divs.filter((d) => w.provinces[d.loc].coastal || w.provinces[d.loc].isPort);
@@ -392,6 +408,8 @@
     const c = w.countries[w.playerTag];
     const target = w.provinces[targetProvId];
     if (!c || !target) return { ok: false, msg: '无效目标' };
+    const gate = invasionGate(w, c, target, '空降');
+    if (gate) return gate;
     const wings = c.airWings.filter((x) => x.type === 'transport' && x.count > 0);
     const hasTransport = wings.length > 0 || (c.stockpile.transport_plane || 0) > 20;
     if (!hasTransport) return { ok: false, msg: '需要运输机（科技：运输机）' };
@@ -419,6 +437,12 @@
       d.status = 'idle';
       d.invasionTarget = null;
       if (!target) continue;
+      // 航渡/飞行途中目标已不再可进入（停战、被盟友接管等）：原地取消，不要落进和平省份
+      if (!PSE.Sim.passable(w, target, d.tag)) {
+        PSE.log(w, d.name + ' 的登陆/空降取消：目标 ' + target.name + ' 已不再处于交战状态', 'war', d.tag);
+        d.paradrop = false;
+        continue;
+      }
       const wasParadrop = d.paradrop;
       d.loc = target.id;
       d.entrench = 0;
