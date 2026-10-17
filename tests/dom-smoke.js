@@ -68,12 +68,48 @@ function makeEl(id) {
     setAttribute(k, v) { this._attr[k] = String(v); },
     removeAttribute(k) { delete this._attr[k]; },
     querySelector() { return makeEl('q'); },
-    querySelectorAll(s) { return s === 'select' ? findSelects(this) : []; },
+    querySelectorAll(s) {
+      if (s === 'select') return findSelects(this);
+      const key = String(s || '').trim();
+      if (!/^\[[^\]]+\]$/.test(key)) return [];
+      let html = '';
+      try { html = this.innerHTML || ''; } catch (e) { html = ''; }
+      if (!this._attrCache || this._attrSnap !== html) { this._attrCache = {}; this._attrSnap = html; }
+      if (!this._attrCache[key]) this._attrCache[key] = parseAttrEls(html, key);
+      return this._attrCache[key];
+    },
     getBoundingClientRect() { return { left: 0, top: 0, width: 1080, height: 792 }; },
     click() { this.dispatchEvent({ type: 'click', target: this }); },
     getContext() { return ctxStub; }, focus() {}, blur() {},
   };
   return el;
+}
+// 属性选择器（如 [data-cancelbuild] / [data-logfilter="mine"]）从 innerHTML 里解析出「真实」的元素对象，
+// 这样面板按钮上挂的 onclick 能像浏览器里一样被 click() 点到，而不是拿到一个空数组。
+function parseAttrEls(html, sel) {
+  const m = /^\[([a-zA-Z0-9_-]+)(?:=(?:"([^"]*)"|'([^']*)'))?\]$/.exec(String(sel || '').trim());
+  if (!m) return null;
+  const attr = m[1];
+  const want = m[2] !== undefined ? m[2] : m[3];
+  const out = [];
+  const tagRe = /<([a-zA-Z0-9]+)((?:"[^"]*"|'[^']*'|[^>"'])*)>/g;
+  let t;
+  while ((t = tagRe.exec(String(html || '')))) {
+    const raw = t[2] || '';
+    const am = new RegExp('(?:^|\\s)' + attr + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s>]+))').exec(raw);
+    if (!am) continue;
+    const val = am[1] !== undefined ? am[1] : (am[2] !== undefined ? am[2] : am[3]);
+    if (want !== undefined && val !== want) continue;
+    const el = makeEl(t[1].toLowerCase());
+    const dr = /(?:^|\s)(data-[a-zA-Z0-9_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g;
+    let d;
+    while ((d = dr.exec(raw))) {
+      const key = d[1].slice(5).replace(/-([a-z])/g, (s, ch) => ch.toUpperCase());
+      el.dataset[key] = d[2] !== undefined ? d[2] : (d[3] !== undefined ? d[3] : d[4]);
+    }
+    out.push(el);
+  }
+  return out;
 }
 const els = {};
 global.document = {
@@ -386,6 +422,54 @@ step('渲染日志与 toast', () => {
   const logHtml = document.getElementById('log').innerHTML;
   if (!logHtml) throw new Error('日志为空');
 });
+
+step('建设队列可取消：点 ✕ 命中那一项、行消失、toast 正确（新功能回归）', () => {
+  const w = PSE.Game.world;
+  const UI = PSE.UI;
+  const c = w.countries[w.playerTag];
+  c.construction.length = 0;
+  const cap = c.capital;
+  const r1 = PSE.Cmd.queueBuildEx(w, 'civ', cap);
+  const r2 = PSE.Cmd.queueBuildEx(w, 'mil', cap);
+  if (!r1.ok || !r2.ok) throw new Error('排队失败：' + r1.msg + ' / ' + r2.msg);
+  if (c.construction.length !== 2) throw new Error('队列不是 2 项：' + c.construction.length);
+  if (!c.construction[0].id || c.construction[0].id === c.construction[1].id) {
+    throw new Error('建设项缺少唯一 id：' + c.construction.map((x) => x.id).join(','));
+  }
+  UI.setTab('production', PSE.Game);
+  const body = document.getElementById('panelBody');
+  const rows = body.querySelectorAll('[data-cancelbuild]');
+  if (rows.length !== 2) throw new Error('取消按钮数不对：' + rows.length);
+  const cancelId = c.construction[0].id;
+  const toasts = [];
+  const origToast = UI.toast;
+  UI.toast = (msg) => { toasts.push(String(msg)); };
+  try {
+    rows[0].click();
+    if (c.construction.length !== 1) throw new Error('点 ✕ 后队列没有减 1：' + c.construction.length);
+    if (String(c.construction[0].id) === String(cancelId)) throw new Error('取消命中的是错的项');
+    if (!/^已取消建设：.+（.+，已完成 \d+%）$/.test(toasts[0] || '')) throw new Error('toast 文案不对：' + toasts[0]);
+    UI.renderPanel(PSE.Game);
+    const html = document.getElementById('panelBody').innerHTML;
+    if (html.indexOf('data-cancelbuild="' + cancelId + '"') >= 0) throw new Error('被取消的项仍在面板里');
+    if (document.getElementById('panelBody').querySelectorAll('[data-cancelbuild]').length !== 1) throw new Error('取消后按钮数不对');
+    // 再推进两天：剩下一项继续涨，被取消的那项不复活
+    const before = c.construction[0].prog;
+    for (let i = 0; i < 48; i++) PSE.Sim.tickHour(w);
+    if (c.construction.length !== 1) throw new Error('被取消的项复活了：' + c.construction.length);
+    if (!(c.construction[0].prog > before)) throw new Error('剩余项进度没涨：' + before + ' → ' + c.construction[0].prog);
+    // 老存档（项没有 id）也要能用下标兜底取消
+    c.construction[0].id = undefined;
+    UI.renderPanel(PSE.Game);
+    const rows2 = document.getElementById('panelBody').querySelectorAll('[data-cancelbuild]');
+    if (rows2.length !== 1) throw new Error('无 id 项按钮数不对：' + rows2.length);
+    if (rows2[0].dataset.cancelbuild !== '') throw new Error('无 id 项按钮 dataset 不对：' + JSON.stringify(rows2[0].dataset));
+    toasts.length = 0;
+    rows2[0].click();
+    if (c.construction.length !== 0) throw new Error('无 id 项用下标兜底取消失败：' + c.construction.length);
+  } finally { UI.toast = origToast; }
+});
+
 
 step('长时间运行（1 年）无异常且状态有限', () => {
   const w = PSE.Game.world;

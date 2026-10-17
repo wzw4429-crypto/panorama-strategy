@@ -474,12 +474,16 @@
         }
         // 建设
         h += '<div class="sec"><div class="secTitle">建设队列 <span class="muted">（民用工厂 ' + c.factories.civ + '，贸易占用 ' + (c.tradeCivs || 0) + '）</span></div>';
-        for (const it of c.construction) {
+        if (!c.construction.length)
+            h += '<div class="row"><span class="muted">队列是空的</span></div>';
+        for (let i = 0; i < c.construction.length; i++) {
+            const it = c.construction[i];
             const def = PSE.BUILDINGS[it.kind];
             const p = w.provinces[it.prov];
             const pct = Math.round(100 * it.prog / it.cost);
             h += '<div class="row"><span class="eqName">' + def.name + '</span><span class="muted">' + (p ? p.name : '') + '</span>' +
-                '<div class="bar"><i style="width:' + pct + '%"></i></div><span class="num">' + pct + '%</span></div>';
+                '<div class="bar"><i style="width:' + pct + '%"></i></div><span class="num">' + pct + '%</span>' +
+                '<button class="mini danger" title="取消建设" data-cancelbuild="' + (it.id || '') + '" data-cancelidx="' + i + '">✕</button></div>';
         }
         h += '<div class="row wrap">' +
             '<button data-build="civ">民用工厂</button><button data-build="mil">军用工厂</button>' +
@@ -1152,6 +1156,12 @@
                 UI.toast(r.msg);
             else
                 UI.toast(r.msg || '无法在该省建设', 'warn');
+            UI.renderPanel(g);
+        });
+        // 取消建设队列中的一项：优先用稳定 id（下标只作老存档兜底，AI 入队/完工后下标会错位）
+        el.querySelectorAll('[data-cancelbuild]').forEach((b) => b.onclick = () => {
+            const r = PSE.Cmd.cancelBuild(w, b.dataset.cancelbuild, b.dataset.cancelidx);
+            UI.toast(r.msg, r.ok ? '' : 'warn');
             UI.renderPanel(g);
         });
         el.querySelectorAll('[data-advisor]').forEach((b) => b.onclick = () => {

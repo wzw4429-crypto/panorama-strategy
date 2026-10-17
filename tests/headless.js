@@ -861,6 +861,88 @@ section('17. 两栖登陆 / 空降的交战门槛（缺陷 B：未宣战不能�
   PSE.Navy.seaControl = origControl;
 })();
 
+section('18. 建设队列可取消（建设项稳定 id + 下标兜底 + 读档补 id）');
+(function buildCancelQueue() {
+
+
+  // ---------- A. 取消建设：项要有稳定 id，取消命中的是「那一项」而不是某个下标 ----------
+  {
+    const w = mkWorld('GER');
+    const c = w.countries.GER;
+    c.construction = [];
+    const r1 = PSE.Cmd.queueBuildEx(w, 'civ', c.capital);
+    const r2 = PSE.Cmd.queueBuildEx(w, 'mil', c.capital);
+    ok(r1.ok && r2.ok && c.construction.length === 2, '入队 2 项（civ + mil）：' + r1.msg + ' / ' + r2.msg);
+    const ids = c.construction.map((it) => String(it.id || ''));
+    ok(ids.every((id) => /^b\d+$/.test(id)) && ids[0] !== ids[1],
+      '每项都有唯一稳定 id（旧版没有 id，只能在重绘后用下标猜）→ ' + JSON.stringify(ids));
+
+    runWorld(w, 240);
+    ok(c.construction.length === 2 && c.construction.every((it) => it.prog > 0),
+      '推进 240 小时后两项都在涨：' + JSON.stringify(c.construction.map((it) => Math.round(it.prog))));
+
+    // 模拟「面板渲染后队列发生变化」：第一项完工被过滤掉，第二项的下标由 1 变成 0
+    const keep = c.construction[1], keepId = keep.id, staleIdx = 1;
+    c.construction.splice(0, 1);
+    const logged = (w.log || []).length;
+    const rc = PSE.Cmd.cancelBuild(w, keepId, staleIdx);
+    ok(rc.ok && c.construction.length === 0, '用 id 取消（渲染时的下标已错位）仍删对项：' + rc.msg);
+    ok(new RegExp('已取消建设：' + PSE.BUILDINGS[keep.kind].name).test(rc.msg) && /已完成 \d+%/.test(rc.msg),
+      '取消文案带建筑名与完成度：' + rc.msg);
+    ok((w.log || []).length === logged + 1 && (w.log || [])[logged].text === rc.msg,
+      '取消同时写入日志（日志面板能看到）');
+    const again = PSE.Cmd.cancelBuild(w, keepId);
+    ok(!again.ok, '重复取消同一项 → 失败而不是删掉别人：' + again.msg);
+  }
+
+  // ---------- A2. 取消后不再增长；其余项继续涨（per = avail/n 变快是预期）----------
+  {
+    const w = mkWorld('GER');
+    const c = w.countries.GER;
+    c.construction = [];
+    PSE.Cmd.queueBuildEx(w, 'civ', c.capital);
+    PSE.Cmd.queueBuildEx(w, 'mil', c.capital);
+    runWorld(w, 240);
+    const victim = c.construction[0], victimKind = victim.kind, victimId = victim.id;
+    const other = c.construction[1];
+    const msg = PSE.Cmd.cancelBuild(w, victimId).msg;
+    ok(c.construction.length === 1 && c.construction[0] === other,
+      '取消一项后队列只剩另一项（' + msg + '）');
+    const otherProg0 = other.prog;
+    runWorld(w, 24);
+    ok(other.prog > otherProg0,
+      '剩余项的进度继续增长（取消一项后 per=avail/n 变快是预期）：' + Math.round(otherProg0) + ' → ' + Math.round(other.prog));
+    runWorld(w, 240);
+    ok(!c.construction.some((it) => it.id === victimId || it.kind === victimKind),
+      '再推进 240 小时，被取消的「' + PSE.BUILDINGS[victimKind].name + '」没有复活/增长（队列 ' +
+      JSON.stringify(c.construction.map((it) => it.kind)) + '）');
+    ok(c.construction.length <= 1, '玩家队列没有被 AI 偷偷补项（AI.tickDaily 跳过 playerTag）');
+  }
+
+  // ---------- A3. 老存档兼容：缺 id 的项（下标兜底）+ 读档补 id ----------
+  {
+    const w = mkWorld('GER');
+    const c = w.countries.GER;
+    c.construction = [{ kind: 'civ', prov: c.capital, prog: 900, cost: PSE.BUILDINGS.civ.cost }];
+    const r = PSE.Cmd.cancelBuild(w, '', 0);
+    ok(r.ok && c.construction.length === 0, '老存档项（无 id）用下标兜底取消：' + r.msg);
+
+    const w2 = mkWorld('GER');
+    w2.countries.GER.construction = [
+      { kind: 'civ', prov: w2.countries.GER.capital, prog: 100, cost: PSE.BUILDINGS.civ.cost },
+      { kind: 'mil', prov: w2.countries.GER.capital, prog: 50, cost: PSE.BUILDINGS.mil.cost },
+    ];
+    const wl = PSE.Save.importText(PSE.Save.exportText(w2));
+    const ids = wl.countries.GER.construction.map((it) => String(it.id || ''));
+    ok(ids.length === 2 && ids.every((id) => /^b\d+$/.test(id)) && ids[0] !== ids[1],
+      '读档自动给老存档的建设项补 id：' + JSON.stringify(ids));
+    const rl = PSE.Cmd.cancelBuild(wl, ids[1]);
+    ok(rl.ok && wl.countries.GER.construction.length === 1 && String(wl.countries.GER.construction[0].id) === ids[0],
+      '读档补 id 后取消命中正确项：' + rl.msg);
+  }
+})();
+
+
 // ============================================================
 console.log('\n' + (failures === 0 ? '\x1b[32m全部通过\x1b[0m' : '\x1b[31m失败 ' + failures + ' 项\x1b[0m') + '（检查 ' + checks + ' 项）');
 process.exit(failures === 0 ? 0 : 1);

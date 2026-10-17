@@ -75,6 +75,34 @@
   World.inAnyWar = function (w, tag) { return World.warsOf(w, tag).length > 0; };
 
   // ============================================================
+  // 建设队列（稳定 id）
+  // ------------------------------------------------------------
+  // 面板要能取消某一项建设，而「下标」在下列情况都会错位：完工项被过滤、AI 在
+  // 玩家队列前后入队、读档重建。所以每项带一个稳定 id，取消时按 id 命中；
+  // 老存档（没有 id）由 ensureBuildIds 补，读档时取不到 id 才退回下标。
+  // ============================================================
+  let buildSeq = 0;
+  function nextBuildId() { buildSeq++; return 'b' + buildSeq; }
+  /** 给缺少 id 的建设项补 id，并把序号推进到存档里已有的最大序号之后（避免读档后 id 撞车） */
+  World.ensureBuildIds = function (c) {
+    if (!c || !c.construction) return;
+    for (const it of c.construction) {
+      if (!it.id) it.id = nextBuildId();
+      else {
+        const m = /^b(\d+)$/.exec(String(it.id));
+        if (m && +m[1] > buildSeq) buildSeq = +m[1];
+      }
+    }
+  };
+  /** 入队建造的唯一出口：保证每项都有稳定 id */
+  World.pushBuild = function (c, kind, prov, cost) {
+    World.ensureBuildIds(c);
+    const it = { id: nextBuildId(), kind, prov, prog: 0, cost };
+    c.construction.push(it);
+    return it;
+  };
+
+  // ============================================================
   // 装备库存
   // ============================================================
   World.addEquip = function (w, tag, id, n) {
@@ -450,7 +478,7 @@
     const cap = World.byId[c.capital];
     const nCiv = Math.max(1, Math.floor(c.factories.civ * 0.25));
     for (let i = 0; i < nCiv; i++) {
-      c.construction.push({ kind: 'civ', prov: cap ? cap.id : 0, prog: 0, cost: PSE.BUILDINGS.civ.cost });
+      World.pushBuild(c, 'civ', cap ? cap.id : 0, PSE.BUILDINGS.civ.cost);
     }
     // 科研
     const slots = researchSlotsOf(w, c);
@@ -695,6 +723,7 @@
       c.mods = c.mods || {};
       c.trades = c.trades || [];
       c.airWings = c.airWings || [];
+      World.ensureBuildIds(c);   // 老存档的建设项补稳定 id（面板取消项要用）
     }
     return w;
   };

@@ -72,7 +72,7 @@
         const cap = c.capital;
         const want = atWar && c.factories.mil < c.factories.civ * 0.8 ? 'mil' : 'civ';
         const def = PSE.BUILDINGS[want];
-        c.construction.push({ kind: want, prov: cap, prog: 0, cost: def.cost });
+        PSE.World.pushBuild(c, want, cap, def.cost);
     }
     // ============================================================
     // 生产线再平衡（每 30 天 + 紧急情况）

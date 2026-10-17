@@ -1664,12 +1664,38 @@
     if (!p) return { ok: false, msg: '找不到目标省份' };
     if (p.controller !== c.tag) return { ok: false, msg: '「' + p.name + '」不在你的控制下，不能建设' };
     if (def.coastal && !p.coastal) return { ok: false, msg: '「' + def.name + '」需要沿海省份，「' + p.name + '」不是' };
-    c.construction.push({ kind, prov: p.id, prog: 0, cost: def.cost });
+    PSE.World.pushBuild(c, kind, p.id, def.cost);
     return { ok: true, msg: '已在「' + p.name + '」排队建造「' + def.name + '」' };
   };
 
   Cmd.queueBuild = function (w, kind, provId) {
     return Cmd.queueBuildEx(w, kind, provId).ok;
+  };
+
+  /** 取消建设队列中的一项（面板行上的 ✕）→ {ok,msg}。
+   *  按稳定 id 命中；老存档缺 id 时用渲染时的下标兜底（id 优先级更高，避免下标错位删错项）。 */
+  Cmd.cancelBuild = function (w, id, idx) {
+    const c = w.countries[w.playerTag];
+    if (!c) return { ok: false, msg: '没有可操作的国家' };
+    if (!c.construction || !c.construction.length) return { ok: false, msg: '建设队列是空的' };
+    let i = -1;
+    if (id != null && id !== '') {
+      i = c.construction.findIndex((it) => String(it.id) === String(id));
+      if (i < 0) { PSE.World.ensureBuildIds(c); i = c.construction.findIndex((it) => String(it.id) === String(id)); }
+    }
+    if (i < 0) {
+      const k = idx == null || idx === '' ? -1 : +idx;
+      if (k >= 0 && k < c.construction.length) i = k;
+    }
+    if (i < 0) return { ok: false, msg: '该建造项已不在队列中（可能刚完工）' };
+    const it = c.construction[i];
+    const def = PSE.BUILDINGS[it.kind] || { name: it.kind };
+    const p = w.provinces[it.prov];
+    const pct = Math.round(100 * it.prog / (it.cost || 1));
+    c.construction.splice(i, 1);
+    const msg = '已取消建设：' + def.name + '（' + (p ? p.name : '未知省份') + '，已完成 ' + pct + '%）';
+    PSE.log(w, msg, 'eco', c.tag);
+    return { ok: true, msg };
   };
 
   Cmd.changeLaw = function (w, lawKey, value) {
