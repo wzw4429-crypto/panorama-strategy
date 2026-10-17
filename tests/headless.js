@@ -721,5 +721,60 @@ section('15. 海战日志去噪（0 损失不记录 + 同海区每周合并一�
 })();
 
 // ============================================================
+section('16. 海岸线数据（缺陷 A：内陆省不再被当成沿海/港口）');
+(function coastData() {
+  // 旧口径：省质心离海区矩形 < 1.5°（≈165km）就算沿海，再靠 vp>0 补成港口 →
+  // 柏林/法兰克福/马德里/华沙等内陆省都能造船坞并发动两栖登陆。
+  // 新口径：省多边形某条边两侧"一陆一海"（边中点法线 nudge 0.02° 采样）才算沿海。
+  const byName = {};
+  for (const p of PSE.MapData.provinces) if (!byName[p.name]) byName[p.name] = p;
+
+  const INLAND = ['柏林', '法兰克福', '鲁尔', '科隆', '马德里', '塞维利亚', '华沙', '利雅得',
+    '哈尔滨', '南京', '基律纳', '布鲁塞尔', '安卡拉', '萨格勒布'];
+  const badInland = [];
+  for (const nm of INLAND) {
+    const p = byName[nm];
+    if (!p) continue;
+    if (p.coastal || p.isPort) badInland.push(nm + ' coastal=' + p.coastal + ' isPort=' + p.isPort);
+  }
+  ok(badInland.length === 0, '内陆城市省都不是沿海、都不是港口（抽查 ' + INLAND.length + ' 项，实际 ' + (badInland.join('；') || '全部正确') + '）');
+
+  const PORTS = ['汉堡', '哥德堡', '斯德哥尔摩', '列宁格勒', '巴士拉', '马赛', '上海'];
+  const badPort = [];
+  for (const nm of PORTS) {
+    const p = byName[nm];
+    if (!p || !p.isPort) continue;   // 该城在本数据里没有省（如 上海市）就跳过
+    if (!p.coastal) badPort.push(nm);
+  }
+  ok(badPort.length === 0, '真港口仍然沿海（汉堡/哥德堡/斯德哥尔摩/列宁格勒/巴士拉…，实际 ' + (badPort.join(',') || '全部正确') + '）');
+
+  const ger = PSE.MapData.provinces.filter((p) => p.owner === 'GER');
+  const gerCoast = ger.filter((p) => p.coastal);
+  ok(gerCoast.length > 0 && gerCoast.length <= 8,
+    '德国沿海省数量在 1~8 之间（旧口径 21 个，实际 ' + gerCoast.length + '）');
+  ok(!gerCoast.some((p) => p.name === '柏林') && ger.some((p) => p.name === '汉堡' && p.coastal),
+    '德国沿海省含汉堡、不含柏林（' + gerCoast.map((p) => p.name).join(',') + '）');
+
+  let portNotCoast = 0, coastNoZone = 0, landHasZone = 0;
+  for (const p of PSE.MapData.provinces) {
+    if (p.isPort && !p.coastal) portNotCoast++;
+    if (p.coastal && !(p.seaZones || []).length) coastNoZone++;
+    if (!p.coastal && (p.seaZones || []).length) landHasZone++;
+  }
+  ok(portNotCoast === 0 && coastNoZone === 0 && landHasZone === 0,
+    '不变量：港口⇒沿海、沿海⇒有海区、内陆⇒无海区（实际 ' + portNotCoast + '/' + coastNoZone + '/' + landHasZone + '）');
+
+  // 内陆省不能造船坞；港口省可以排队
+  const nw = mkWorld('GER');
+  const berlin = nw.provinces.find((p) => p.name === '柏林');
+  const hamburg = nw.provinces.find((p) => p.name === '汉堡');
+  const rBerlin = PSE.Cmd.queueBuildEx(nw, 'dock', berlin.id);
+  nw.countries.GER.construction.length = 0;
+  const rHamburg = PSE.Cmd.queueBuildEx(nw, 'dock', hamburg.id);
+  ok(rBerlin.ok === false && /沿海/.test(rBerlin.msg), '柏林排「海军船坞」被拒且给出原因：' + rBerlin.msg);
+  ok(rHamburg.ok === true, '汉堡（真港口/沿海）可以排队船坞：' + rHamburg.msg);
+})();
+
+// ============================================================
 console.log('\n' + (failures === 0 ? '\x1b[32m全部通过\x1b[0m' : '\x1b[31m失败 ' + failures + ' 项\x1b[0m') + '（检查 ' + checks + ' 项）');
 process.exit(failures === 0 ? 0 : 1);

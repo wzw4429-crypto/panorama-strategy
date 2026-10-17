@@ -663,13 +663,95 @@ function distToZoneBox(p, z) {
   const dy = Math.max(0, Math.abs(p.cy - z.cy) - z.ry);
   return Math.hypot(dx, dy);
 }
+
+// —— 真实海岸判定（几何，而不是"离海区矩形多近"）——
+// 老写法把"省质心离海区矩形 < 1.5°（≈165km）"当沿海，于是柏林/法兰克福/马德里/华沙
+// 等内陆省全被算成沿海，还靠 `vp>0` 补成"港口"（内陆省有港口、能造船坞、能发起登陆）。
+// 省份是"国家陆地环 + Voronoi 裁剪"的结果，裁剪交点可能落在环边中间，
+// 所以判定不看顶点，而看每条边：取边中点沿两侧法线各 nudge 0.02°（≈2km），
+// 恰好一侧是陆地、另一侧是海 → 这条边就是该省真实的海岸线。
+// 陆地以"任意国家陆地环内"为准（各省铺满陆地，内外两侧的陆地判定正好互补）。
+// 但仅有"省界里有海岸线"还不够：省份是 Voronoi 大格子，内陆大城的格子可能一路伸到海边
+// （巴黎/罗马/伦敦这种），于是省城在内陆却成了"沿海省"——玩家能在巴黎造海军船坞、
+// 从巴黎发起登陆。所以再加一条：**省城到这段真海岸线的距离必须 ≤ COAST_MAX_DIST**（≈55km），
+// 即"这座城本身靠海"，而不是"这个省的地盘里有海"。
+const LAND_EPS = 0.02;
+const LAND_GRID = 5;
+const COAST_MAX_DIST = 0.5;
+const LAND_RINGS = [];
+for (const code in countryPolys) for (const cp of countryPolys[code]) LAND_RINGS.push(cp.ring);
+const LAND_CELLS = new Map();
+const landKey = (gx, gy) => gx + ':' + gy;
+for (let i = 0; i < LAND_RINGS.length; i++) {
+  const bb = bboxOf(LAND_RINGS[i]);
+  for (let gx = Math.floor(bb[0] / LAND_GRID); gx <= Math.floor(bb[2] / LAND_GRID); gx++) {
+    for (let gy = Math.floor(bb[1] / LAND_GRID); gy <= Math.floor(bb[3] / LAND_GRID); gy++) {
+      const k = landKey(gx, gy);
+      if (!LAND_CELLS.has(k)) LAND_CELLS.set(k, []);
+      LAND_CELLS.get(k).push(i);
+    }
+  }
+}
+function isLandPoint(pt) {
+  // 视口外无法判定（返回 null，调用方跳过这条边）
+  if (pt[0] < BBOX.lonMin || pt[0] > BBOX.lonMax || pt[1] < BBOX.latMin || pt[1] > BBOX.latMax) return null;
+  const list = LAND_CELLS.get(landKey(Math.floor(pt[0] / LAND_GRID), Math.floor(pt[1] / LAND_GRID)));
+  if (!list) return false;
+  for (const i of list) if (pointInPoly(pt, LAND_RINGS[i])) return true;
+  return false;
+}
+function coastInfo(p) {
+  const poly = p.poly, c = [p.cx, p.cy];
+  let coastal = false, coastDist = 1e9;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-6) continue;
+    const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+    const nx = -dy / len * LAND_EPS, ny = dx / len * LAND_EPS;
+    const s1 = isLandPoint([mx + nx, my + ny]), s2 = isLandPoint([mx - nx, my - ny]);
+    if (s1 === null || s2 === null) continue;   // 采样越出视口
+    if (s1 === s2) continue;                    // 两侧同为陆地(省界/国界)或同为海(退化薄条)
+    coastal = true;
+    coastDist = Math.min(coastDist, distPointSeg(c, a, b));
+  }
+  return { coastal, coastDist };
+}
+let riverPort = 0, riverPortNames = [];
+let coastDropped = [];
 for (const p of provinces) {
+  const ci = coastInfo(p);
+  p.coastal = ci.coastal && ci.coastDist <= COAST_MAX_DIST;   // 省城本身靠海才算沿海
+  if (ci.coastal && !p.coastal) coastDropped.push(p.name + '(' + ci.coastDist.toFixed(2) + '°)');
+  p.coastDist = ci.coastDist;
+  // 港口：以城市元数据为主（CITIES 的 port 标记就是权威；汉堡/巴士拉这类河口港
+  // 离 110m 精度海岸线还有几十~上百公里，不能因为几何没贴海就把港口取消）。
+  // 非城市省不额外补港，只有"确实沿海 + 省质心离真海岸 < 0.35°（≈39km）"才补标。
+  if (!p.isPort && p.vp > 0 && p.coastal && ci.coastDist < 0.35) p.isPort = true;
+  if (p.isPort && !p.coastal) { p.coastal = true; riverPort++; riverPortNames.push(p.name); }   // 河口港必然沿海
   const list = SEA_ZONES.map((z) => ({ z, d: distToZoneBox(p, z) })).sort((a, b) => a.d - b.d);
-  p.seaZones = list.filter((x) => x.d < 1.5).map((x) => x.z.id);
-  p.coastal = p.seaZones.length > 0;
-  if (p.coastal && !p.isPort && p.vp > 0) p.isPort = true;
+  // 海区只给真沿海省（用于海军分战区/登陆目标海区）；离所有海区矩形都远时就近归属
+  p.seaZones = p.coastal ? list.filter((x) => x.d < 1.5).map((x) => x.z.id) : [];
+  if (p.coastal && !p.seaZones.length) p.seaZones = [list[0].z.id];
 }
 for (const p of provinces) if (p.isIsland) { p.coastal = true; if (!p.seaZones.length) p.seaZones = [2]; }
+if (riverPort) console.log('河口港按沿海处理（城市标港、几何未贴海）: ' + riverPort + ' 个 → ' + riverPortNames.join(', '));
+console.log('省界贴海但省城离海 > ' + COAST_MAX_DIST + '°（约 55km）判为内陆: ' + coastDropped.length +
+  (coastDropped.length ? ' → ' + coastDropped.slice(0, 14).join(', ') + (coastDropped.length > 14 ? ' …' : '') : ''));
+{
+  const own = {};
+  for (const p of provinces) {
+    own[p.owner] = own[p.owner] || { coastal: 0, ports: 0, islands: 0 };
+    if (p.coastal) own[p.owner].coastal++;
+    if (p.isPort) own[p.owner].ports++;
+    if (p.isIsland) own[p.owner].islands++;
+  }
+  const none = Object.keys(own).sort().filter((t) => own[t].coastal === 0);
+  const portless = Object.keys(own).sort().filter((t) => own[t].ports === 0);
+  console.log('无沿海省的国家 ' + none.length + ': ' + none.join(','));
+  console.log('无港口省的国家 ' + portless.length + ': ' + portless.join(','));
+}
 
 // 跨海通道：同块同几何体或两国共享弧段 → 陆地边界，否则 → 跨海
 const straits = [];
@@ -768,6 +850,17 @@ const isolated = provinces.filter((p) => !(p.neighbors || []).length);
 console.log('孤立省: ' + isolated.length + (isolated.length ? ' → ' + isolated.map((p) => p.name).slice(0, 6).join(',') : ''));
 console.log('沿海: ' + provinces.filter((p) => p.coastal).length + '，港口: ' + provinces.filter((p) => p.isPort).length +
   '，城市: ' + provinces.filter((p) => p.vp > 0).length);
+// 海岸数据自检（固定抽查清单：内陆省必须 coastal=false/isPort=false，真港口必须 coastal=true）
+const COAST_CHECK = { '柏林': false, '法兰克福': false, '鲁尔': false, '科隆': false, '马德里': false, '华沙': false,
+  '利雅得': false, '哈尔滨': false, '巴黎': false, '里昂': false, '慕尼黑': false, '莫斯科': false, '芝加哥': false,
+  '汉堡': true, '哥德堡': true, '斯德哥尔摩': true, '列宁格勒': true, '马赛': true, '伦敦': true, '纽约': true, '上海': true };
+for (const nm of Object.keys(COAST_CHECK)) {
+  const p = provinces.find((q) => q.name === nm);
+  const ok = p && p.coastal === COAST_CHECK[nm];
+  console.log('  自检 ' + nm + '：' + (p ? 'coastal=' + p.coastal + ' isPort=' + p.isPort + ' 距海 ' + (p.coastDist != null ? p.coastDist.toFixed(2) + '°' : '?') : '未找到') + (ok ? ' OK' : ' ✗ 期望 coastal=' + COAST_CHECK[nm]));
+}
+const gerCoast = provinces.filter((p) => p.owner === 'GER' && p.coastal);
+console.log('  德国沿海省 ' + gerCoast.length + ': ' + gerCoast.map((p) => p.name + (p.isPort ? '[港]' : '')).join(', '));
 
 const out = {
   bbox: BBOX, gridW: GW, gridH: GH,

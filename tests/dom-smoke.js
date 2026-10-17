@@ -259,6 +259,22 @@ step('悬停提示读运行时字段：不再「补给 NaN%」，且有胜利点
   if (PSE.UI.provinceTooltipHtml(w, mp, 0).indexOf('补给 —') < 0) throw new Error('静态地图对象未按占位符降级');
 });
 
+step('海岸线数据（缺陷 A）：内陆省详情不再写「港口 是」', () => {
+  const w = PSE.Game.world;
+  const find = (nm) => w.provinces.find((p) => p.name === nm);
+  const berlin = find('柏林'), hamburg = find('汉堡');
+  if (!berlin || !hamburg) throw new Error('找不到柏林/汉堡省份');
+  if (berlin.coastal || berlin.isPort) throw new Error('柏林仍被判为沿海/港口：coastal=' + berlin.coastal + ' isPort=' + berlin.isPort);
+  if (!hamburg.coastal || !hamburg.isPort) throw new Error('汉堡丢了港口/沿海标记');
+  PSE.UI.renderProvince(PSE.Game, berlin.id);
+  const bhtml = document.getElementById('provinceInfo').innerHTML;
+  if (bhtml.indexOf('港口</span><b>是</b>') >= 0) throw new Error('柏林省份详情仍写「港口 是」');
+  if (bhtml.indexOf('港口</span><b>否</b>') < 0) throw new Error('柏林省份详情未写「港口 否」');
+  PSE.UI.renderProvince(PSE.Game, hamburg.id);
+  const hhtml = document.getElementById('provinceInfo').innerHTML;
+  if (hhtml.indexOf('港口</span><b>是</b>') < 0) throw new Error('汉堡省份详情未写「港口 是」');
+});
+
 step('推进 60 天（玩家国 + AI 全开）', () => {
   const w = PSE.Game.world;
   for (let i = 0; i < 24 * 60; i++) PSE.Sim.tickHour(w);
