@@ -2230,12 +2230,57 @@
         if (next)
             c.focus.current = { id: next, progress: 0 };
     }
+    // ============================================================
+    // 日志（w.log）：玩家相关消息保底
+    // ------------------------------------------------------------
+    // 旧版是 59 国共用的 500 条环形缓冲，纯 FIFO。快进几十天后玩家自己
+    // 的「完成国策/科研/建设」会被利比里亚、蒙古这类无关要闻挤出窗口，
+    // 玩家在日志面板里看不到自己刚发生的事。现在改为：
+    //   1) 容量放宽到 800（超过 1000 才批量压缩，摊平每小时的数组开销）；
+    //   2) 压缩时**先淘汰最早的无关要闻**，玩家相关（自己/同阵营/交战方/全局提示）留到最后一刻；
+    //   3) 全是玩家消息时退化为 FIFO，保证内存有界。
+    // 面板默认「仅我方」，可切「全部世界」（PSE.UI.setLogFilter）。
+    // ============================================================
+    const LOG_CAP = 800; // 压缩后的目标容量
+    const LOG_GROW = 1000; // 超过它才压缩（避免每次 push 都 O(n)）
+    /** 是否与玩家相关：自己发的、己方阵营/交战国的、以及无 tag 的全局提示（剧本载入等） */
+    function isPlayerLog(w, e) {
+        if (!e)
+            return false;
+        const pt = w.playerTag;
+        if (!pt || !w.countries || !w.countries[pt])
+            return true;
+        const tag = e.tag || '';
+        if (!tag || tag === pt)
+            return true;
+        if (PSE.World.isAllied(w, pt, tag))
+            return true;
+        return PSE.World.areAtWar(w, pt, tag);
+    }
+    Sim.isPlayerLog = isPlayerLog;
+    function trimLog(w) {
+        const log = w.log;
+        if (!log || log.length <= LOG_GROW)
+            return;
+        let excess = log.length - LOG_CAP;
+        const keep = [];
+        for (const e of log) {
+            if (excess > 0 && !isPlayerLog(w, e)) {
+                excess--;
+                continue;
+            } // 先丢最早的无关要闻
+            keep.push(e);
+        }
+        if (keep.length > LOG_CAP)
+            keep.splice(0, keep.length - LOG_CAP); // 全是玩家消息时退化为 FIFO
+        w.log = keep;
+    }
+    Sim.trimLog = trimLog;
     // 简单日志包装（GameLog 由 UI 持有；无 UI 时只进 world.log）
     PSE.log = function (w, text, kind, tag) {
         w.log = w.log || [];
         w.log.push({ h: w.hour, text, kind: kind || 'info', tag: tag || '' });
-        if (w.log.length > 500)
-            w.log.shift();
+        trimLog(w);
         if (PSE.gameLog)
             PSE.gameLog.push(w.hour, text, kind, tag);
         if (PSE.EventBus)

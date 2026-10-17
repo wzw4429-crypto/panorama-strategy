@@ -942,6 +942,55 @@ section('18. 建设队列可取消（建设项稳定 id + 下标兜底 + 读档�
   }
 })();
 
+section('19. 玩家日志保底（无关要闻先淘汰，玩家消息不会被挤掉）');
+(function logRetention() {
+
+  // ---------- B. 日志保底：无关要闻先淘汰，玩家消息留到最后 ----------
+  {
+    const w = mkWorld('GER');
+    PSE.Diplo.declareWar(w, 'GER', 'POL', { silent: true });
+    ok(PSE.Sim.isPlayerLog(w, { tag: 'GER' }) && !PSE.Sim.isPlayerLog(w, { tag: 'BRA' }) &&
+       PSE.Sim.isPlayerLog(w, { tag: 'POL' }) && PSE.Sim.isPlayerLog(w, { tag: '' }),
+      '玩家相关判定：自己/交战国/全局提示算相关，中立国不算');
+
+    w.hour = 600;
+    w.log = [];                                  // 清掉建世界/宣战时的噪音，聚焦本用例
+    PSE.log(w, '德国 完成国策：重整军备', 'focus', 'GER');
+    PSE.log(w, '德国 完成科技：防空 I', 'tech', 'GER');
+    PSE.log(w, '波兰 完成国策：重整军备', 'focus', 'POL');
+    for (let i = 0; i < 3000; i++) PSE.log(w, '巴西 完成科技：步兵武器 ' + i, 'tech', 'BRA');
+    const mine = (w.log || []).filter((e) => e.tag === 'GER');
+    ok(mine.length === 2 && mine.some((e) => /完成国策/.test(e.text)) && mine.some((e) => /完成科技/.test(e.text)),
+      '3000 条无关要闻之后，玩家的国策/科研日志仍在（' + mine.length + ' 条；旧版 500 条 FIFO 会被挤掉）');
+    ok((w.log || []).length <= 1000, '日志容量仍有界：' + (w.log || []).length + ' 条（压缩目标 800，最多 1000 触发压缩）');
+    ok((w.log || []).some((e) => e.tag === 'POL') && (w.log || []).some((e) => e.tag === 'BRA'),
+      '交战方消息保底、中立国要闻仍保留（只是先被淘汰）');
+  }
+
+  // ---------- B2. 真实长跑：600 小时前的玩家消息，到 1800 小时仍在 ----------
+  {
+    const w = mkWorld('GER');
+    let pushed = 0;
+    const origLog = PSE.log;
+    PSE.log = function (ww, text, kind, tag) { pushed++; return origLog(ww, text, kind, tag); };
+    runWorld(w, 600);
+    let mine600 = (w.log || []).filter((e) => e.tag === 'GER');
+    if (!mine600.length) { PSE.log(w, '德国 完成国策：测试', 'focus', 'GER'); mine600 = (w.log || []).filter((e) => e.tag === 'GER'); }
+    const watch = mine600.map((e) => e.h + '#' + e.text);
+    runWorld(w, 1200);
+    PSE.log = origLog;
+    const now = {};
+    for (const e of (w.log || [])) now[e.h + '#' + e.text] = true;
+    const kept = watch.filter((k) => now[k]);
+    ok(watch.length > 0 && kept.length === watch.length,
+      '1800 小时后，玩家 600 小时前的 ' + watch.length + ' 条消息全部保留（' + kept.length + '/' + watch.length + '）：' +
+      watch.slice(0, 2).join(' / '));
+    ok(pushed > 800, '长跑期间确实产生大量世界要闻（共 ' + pushed + ' 条 > 容量，证明发生了淘汰）');
+    ok((w.log || []).length <= 1000, '长跑日志有界：' + (w.log || []).length + ' 条（≤1000）');
+    ok((w.log || []).filter((e) => e.tag === 'GER').length >= watch.length,
+      '日志里玩家的消息条数 ≥ 起点条数（没有被后来的玩家消息挤掉）');
+  }
+})();
 
 // ============================================================
 console.log('\n' + (failures === 0 ? '\x1b[32m全部通过\x1b[0m' : '\x1b[31m失败 ' + failures + ' 项\x1b[0m') + '（检查 ' + checks + ' 项）');

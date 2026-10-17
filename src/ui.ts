@@ -1030,15 +1030,40 @@
     w.speed = 0; // 事件强制暂停
   };
 
+  /** 日志面板过滤：'mine'＝我方/盟友/交战方消息 + 全局提示；'world'＝全部要闻。
+   *  默认 'mine'，因为 59 国共用一条时间线时，默认看到的应该是玩家自己的事。 */
+  let logFilter = 'mine';
+  UI.setLogFilter = function (f, g) {
+    logFilter = f === 'world' ? 'world' : 'mine';
+    logSig = '';
+    if (g) UI.renderLog(g);
+    return logFilter;
+  };
+  UI.getLogFilter = function () { return logFilter; };
+
   UI.renderLog = function (g) {
     const w = g.world;
-    const items = (w.log || []).slice(-40).reverse();
+    const all = w.log || [];
+    const mine = logFilter === 'mine';
+    const items = (mine ? all.filter((e) => PSE.Sim.isPlayerLog(w, e)) : all).slice(-40).reverse();
     const top = items[0];
-    const sig = items.length + '|' + (top ? top.h + '#' + top.text : '');
-    if (sig === logSig) return;                 // 没有新日志就不动 DOM（避免丢掉玩家的文本选择）
-    logSig = sig;
-    setHtml('log', items.map((it) =>
-      '<div class="logLine ' + it.kind + '"><span class="muted">' + PSE.Time.format(it.h).slice(5, 16) + '</span> ' + it.text + '</div>').join(''));
+    const sig = logFilter + '|' + items.length + '|' + (top ? top.h + '#' + top.text : '');
+    if (sig !== logSig) {
+      logSig = sig;
+      setHtml('log', items.map((it) =>
+        '<div class="logLine ' + it.kind + '"><span class="muted">' + PSE.Time.format(it.h).slice(5, 16) + '</span> ' + it.text + '</div>').join('') ||
+        '<div class="logLine"><span class="muted">（' + (mine ? '最近还没有我方消息，切「全部世界」看看别国动静' : '暂无日志') + '）</span></div>');
+    }
+    // 只看我方 / 全部世界：按钮是静态 HTML，每次渲染重新挂一遍同样的事件（幂等，且 DOM 桩里也能点到）
+    const head = $('logHead');
+    if (head && head.querySelectorAll) {
+      const bs = head.querySelectorAll('[data-logfilter]');
+      for (let i = 0; i < bs.length; i++) {
+        const b: any = bs[i];
+        b.className = b.dataset.logfilter === logFilter ? 'mini on' : 'mini';
+        b.onclick = () => UI.setLogFilter(b.dataset.logfilter, g);
+      }
+    }
   };
 
   UI.toast = function (text, kind) {

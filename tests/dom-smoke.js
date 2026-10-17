@@ -470,6 +470,40 @@ step('建设队列可取消：点 ✕ 命中那一项、行消失、toast 正确
   } finally { UI.toast = origToast; }
 });
 
+step('日志「仅我方 / 全部世界」切换 + 玩家消息不被世界要闻挤掉（新功能回归）', () => {
+  const w = PSE.Game.world;
+  const UI = PSE.UI;
+  const head = document.getElementById('logHead');
+  head.innerHTML = '<span class="muted">日志</span><button class="mini on" data-logfilter="mine">仅我方</button><button class="mini" data-logfilter="world">全部世界</button>';
+  let otherTag = null;
+  for (const t of Object.keys(w.countries)) {
+    if (t !== w.playerTag && t !== 'NEU' && !PSE.Sim.isPlayerLog(w, { tag: t })) { otherTag = t; break; }
+  }
+  if (!otherTag) throw new Error('找不到与玩家无关的国家');
+  const mineText = '我方测试消息：完成科技 测试';
+  const otherText = '别国测试消息：巴西宣战阿根廷';
+  w.log = [];
+  PSE.log(w, mineText, 'tech', w.playerTag);
+  PSE.log(w, otherText, 'war', otherTag);
+  UI.setLogFilter('mine', PSE.Game);
+  let html = document.getElementById('log').innerHTML;
+  if (html.indexOf('我方测试消息') < 0) throw new Error('仅我方模式下看不到自己的消息');
+  if (html.indexOf('别国测试消息') >= 0) throw new Error('仅我方模式下不该出现别国消息');
+  const btns = head.querySelectorAll('[data-logfilter]');
+  if (btns.length !== 2) throw new Error('日志过滤按钮数不对：' + btns.length);
+  btns[1].click();
+  if (UI.getLogFilter() !== 'world') throw new Error('切「全部世界」失败：' + UI.getLogFilter());
+  html = document.getElementById('log').innerHTML;
+  if (html.indexOf('别国测试消息') < 0) throw new Error('全部世界模式下看不到别国消息');
+  btns[0].click();
+  if (UI.getLogFilter() !== 'mine') throw new Error('切回「仅我方」失败：' + UI.getLogFilter());
+  // 2000 条无关要闻走真实 PSE.log 路径后，玩家的消息仍在（保底缓冲 + 优先淘汰无关要闻）
+  for (let i = 0; i < 2000; i++) PSE.log(w, '别国要闻 ' + i, 'eco', otherTag);
+  if (w.log.length > 1000) throw new Error('日志容量失控：' + w.log.length);
+  if (!w.log.some((e) => e.text === mineText)) throw new Error('保底缓冲里玩家消息被淘汰了');
+  UI.setLogFilter('mine', PSE.Game);
+  if (document.getElementById('log').innerHTML.indexOf('我方测试消息') < 0) throw new Error('2000 条要闻后日志面板看不到玩家消息');
+});
 
 step('长时间运行（1 年）无异常且状态有限', () => {
   const w = PSE.Game.world;

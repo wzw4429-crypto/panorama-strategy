@@ -216,7 +216,10 @@ window.addEventListener('error', function (e) {
   #side.panelFs #panelBody { padding: 10px 16px; }
   #side.panelFs .techList { max-height: none; }
   #side.panelFs .focusWrap { max-height: none; }
+  #logHead { display: flex; align-items: center; gap: 4px; padding: 3px 10px 0; font-size: 10px; background: #121820; }
+  #logHead .muted { margin-right: auto; }
   #log { overflow: auto; border-top: 1px solid var(--line); padding: 5px 10px; font-size: 11px; background: #121820; }
+  #logHead + #log { border-top: 0; padding-top: 3px; }
   .logLine { padding: 1px 0; border-bottom: 1px solid rgba(255,255,255,.03); }
   .logLine.war { color: #ff9d94; }
   .logLine.eco { color: #9fd3ff; }
@@ -269,7 +272,7 @@ window.addEventListener('error', function (e) {
   #gameOver { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: flex; align-items: center;
     justify-content: center; z-index: 150; }
   #gameOverBox { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 22px 28px; text-align: center; }
-  #toasts { position: fixed; right: 14px; bottom: 14px; z-index: 300; display: flex; flex-direction: column; gap: 6px; }
+  #toasts { position: fixed; right: 14px; bottom: 14px; z-index: 300; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
   .toast { background: var(--panel2); border: 1px solid var(--line); border-left: 3px solid var(--ok);
     border-radius: 4px; padding: 7px 11px; font-size: 12px; animation: slide .2s ease-out; }
   .toast.warn { border-left-color: var(--warn); }
@@ -370,6 +373,7 @@ window.addEventListener('error', function (e) {
       <div id="provinceInfo"><div class="muted">点击地图查看省份</div></div>
       <div id="tabs"></div>
       <div id="panelBody"></div>
+      <div id="logHead"><span class="muted">日志</span><button class="mini on" data-logfilter="mine">仅我方</button><button class="mini" data-logfilter="world">全部世界</button></div>
       <div id="log"></div>
     </div>
   </div>
