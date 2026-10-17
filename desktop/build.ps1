@@ -58,6 +58,7 @@ param(
   [string]$GoBin = '',
   [string]$Goproxy = '',
   [string[]]$WwwExtra = @(),
+  [string]$SourceCommit = '',
   [switch]$NoWww,
   [switch]$Zip,
   [switch]$SelfTest
@@ -123,6 +124,43 @@ if ($wv2Ver) {
 $exeSrc = Join-Path $scriptDir 'main.go'
 if (-not (Test-Path -LiteralPath $exeSrc)) { throw "找不到 main.go（$exeSrc）" }
 
+# 源码版本：记下这次嵌进 exe 的 www 是哪个 commit 的 src/，便于回溯「产物对不对得上源码」。
+# 两种情形：① 直接在仓库工作树里构建 —— 现查 git HEAD 与 src/ 是否干净；
+#           ② 从导出的干净快照构建（快照里没有 .git）—— 用调用方 -SourceCommit 告知的 commit。
+# 注意 $ErrorActionPreference='Stop' 下，git 在非仓库目录里的 stderr 会变成终止性错误，
+# 所以这里临时放宽并整段 try/catch。
+$srcHead = ''
+$srcDirty = $false
+$srcFromGit = $false
+if ($SourceCommit) {
+  $srcHead = $SourceCommit
+} else {
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $out1 = (& git -C $RepoRoot rev-parse --short HEAD 2>$null | Select-Object -First 1)
+    if ($out1) { $srcHead = "$out1".Trim() }
+    if ($srcHead) {
+      $srcFromGit = $true
+      $srcDirty = @(& git -C $RepoRoot status --porcelain -- src index.html data 2>$null).Count -gt 0
+    }
+  } catch {
+    $srcHead = ''
+    $srcDirty = $false
+  } finally {
+    $ErrorActionPreference = $prevEap
+  }
+}
+if ($srcHead) {
+  if ($srcFromGit) {
+    Say ("源码版本   : {0}{1}" -f $srcHead, $(if ($srcDirty) { '（src/ 有未提交改动，本次产物对应该工作树）' } else { '（src/ 干净）' }))
+  } else {
+    Say ("源码版本   : {0}（来自调用方声明的干净快照）" -f $srcHead)
+  }
+} else {
+  Say '源码版本   : 未知（该目录不是 git 仓库，也没给 -SourceCommit）' 'Yellow'
+}
+
 # 应用图标 / 清单 / 版本信息：由 go-winres 从 winres\winres.json + app.ico 生成，入库后离线可构建
 $sysoPath = Join-Path $scriptDir 'rsrc_windows_amd64.syso'
 if (Test-Path -LiteralPath $sysoPath) {
@@ -173,21 +211,27 @@ if (-not $NoWww) {
   $excludeExt = @('.ts', '.tsbuildinfo', '.map', '.md')
   $copied = 0; $bytes = 0
 
+  # 逐层递归、自己拼相对路径 —— 不能用 $_.FullName.Substring($srcDir.Length)：
+  # 当 $srcDir 是 8.3 短路径（例如 %TEMP% 展开成 C:\Users\WUPENG~1\...）时 Get-ChildItem
+  # 返回的是长路径，前缀对不上，多出来的那段会被当成子目录塞进目标
+  # （曾把 www\src\*.js 塞成 www\src\09f834b\src\*.js，游戏自然起不来）。
   function Copy-Tree([string]$srcDir, [string]$dstDir, [string[]]$skip) {
     if (-not (Test-Path -LiteralPath $srcDir)) { return }
-    Get-ChildItem -LiteralPath $srcDir -Recurse -File | ForEach-Object {
-      if ($skip -contains $_.Extension.ToLower()) { return }
-      if ($_.FullName -match '\\node_modules\\') { return }
-      $rel = $_.FullName.Substring($srcDir.Length).TrimStart('\', '/')
-      $dst = Join-Path $dstDir $rel
-      $parent = Split-Path -Parent $dst
-      if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
-      Copy-Item -LiteralPath $_.FullName -Destination $dst -Force
+    foreach ($f in Get-ChildItem -LiteralPath $srcDir -File) {
+      if ($skip -contains $f.Extension.ToLower()) { continue }
+      if (-not (Test-Path -LiteralPath $dstDir)) { New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }
+      Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $dstDir $f.Name) -Force
       $script:copied++
-      $script:bytes += $_.Length
+      $script:bytes += $f.Length
+    }
+    foreach ($sub in Get-ChildItem -LiteralPath $srcDir -Directory) {
+      if ($sub.Name -eq 'node_modules') { continue }
+      Copy-Tree $sub.FullName (Join-Path $dstDir $sub.Name) $skip
     }
   }
 
+  # 先清掉旧 www，避免上一次构建的残留文件（或路径算错时的嵌套目录）混进产物
+  if (Test-Path -LiteralPath $wwwDst) { Remove-Item -LiteralPath $wwwDst -Recurse -Force }
   New-Item -ItemType Directory -Force -Path $wwwDst | Out-Null
   Copy-Item -LiteralPath (Join-Path $RepoRoot 'index.html') -Destination (Join-Path $wwwDst 'index.html') -Force
   $copied++; $bytes += (Get-Item -LiteralPath (Join-Path $RepoRoot 'index.html')).Length
@@ -242,7 +286,26 @@ Windows 10 1809 (x64) 或更高；需要 Microsoft Edge WebView2 Runtime
 （Win11 自带，Win10 通常已随 Edge 安装；缺失时到 https://developer.microsoft.com/microsoft-edge/webview2/ 下载 Evergreen 版）。
 
 "@ | Set-Content -LiteralPath $readme -Encoding UTF8
+
+# 产物来源标记：记下这版 www 是按哪个 commit / 哪个源码树组装的。
+# verify.ps1 会读它写进验收报告，分发时也能一眼看出产物对不对得上源码。
+$builtAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+$srcRootKind = 'repo'
+$repoResolved = (Resolve-Path -LiteralPath (Join-Path $scriptDir '..')).Path
+if ($RepoRoot -ne $repoResolved) { $srcRootKind = 'snapshot' }
+$buildInfo = [ordered]@{
+  shell        = 'pse-desktop'
+  version      = '0.3.0'
+  sourceCommit = $(if ($srcHead) { $srcHead } else { '' })
+  sourceDirty  = $(if ($srcHead) { [bool]$srcDirty } else { $null })
+  sourceRoot   = $srcRootKind
+  sourcePath   = $RepoRoot
+  builtAt      = $builtAt
+  wwwFiles     = $copied
+}
+$buildInfo | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'build-info.txt') -Encoding UTF8
 Say "说明文件   : $readme"
+Say ("来源标记   : " + (Join-Path $stage 'build-info.txt'))
 
 # ---------------------------------------------------------------- 6. 汇总 / 自检
 
@@ -272,8 +335,12 @@ if ($Zip) {
 
 if ($SelfTest) {
   Step '自检（启动 → 自动开局 → 探针 → 存档 → 新进程读档）'
-  # 自检用独立的用户数据目录，不碰真实存档
+  # 自检用独立的用户数据目录，不碰真实存档。
+  # 注意：要改的是本进程的 LOCALAPPDATA 环境变量，自检结束后必须还原 —— 否则同一 shell 里
+  # 紧接着跑 verify.ps1，它读到的「默认用户数据目录」会是这个临时目录（曾经踩过一次）。
+  $prevLocalAppData = $env:LOCALAPPDATA
   $env:LOCALAPPDATA = Join-Path $env:TEMP ("pse-selftest-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+  try {
   $wwwRoot = Join-Path $stage 'www'
 
   # 注意：桌面壳把日志写到 stderr，$ErrorActionPreference='Stop' 会把原生命令的
@@ -311,6 +378,9 @@ if ($SelfTest) {
   }
   Say '  自检通过（桌面壳能启动、能注入宿主、能开局、存档可跨进程保留）' 'Green'
   Remove-Item -LiteralPath $env:LOCALAPPDATA -Recurse -Force -ErrorAction SilentlyContinue
+  } finally {
+    $env:LOCALAPPDATA = $prevLocalAppData
+  }
 }
 
 Say "`n完成。" 'Green'

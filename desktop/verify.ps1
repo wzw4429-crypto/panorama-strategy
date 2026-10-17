@@ -95,6 +95,8 @@ $www = Join-Path (Split-Path -Parent $script:exe) 'www'
 if (-not (Test-Path -LiteralPath (Join-Path $www 'index.html'))) {
   throw "找不到 web 资源目录：$www"
 }
+# 仓库根（verify.ps1 在 desktop\ 下），用于在报告里记下这版 www/exe 对应的源码 commit
+$RepoRoot = (Resolve-Path -LiteralPath (Join-Path $scriptDir '..')).Path
 
 if ($FreshUserData -and (Test-Path -LiteralPath $UserData)) {
   Remove-Item -LiteralPath $UserData -Recurse -Force
@@ -404,6 +406,26 @@ $exeItem = Get-Item -LiteralPath $script:exe
 $exeSha = (Get-FileHash -LiteralPath $script:exe -Algorithm SHA256).Hash
 $wwwFiles = @(Get-ChildItem -LiteralPath $www -Recurse -File -ErrorAction SilentlyContinue)
 $wwwBytes = ($wwwFiles | Measure-Object -Property Length -Sum).Sum
+# 源码版本：优先读产物自带的 build-info.txt（build.ps1 写的，能标明是哪个 commit / 是否干净快照），
+# 读不到再退回本仓库当前 HEAD。
+$buildInfoPath = Join-Path (Split-Path -Parent $script:exe) 'build-info.txt'
+$srcLine = ''
+if (Test-Path -LiteralPath $buildInfoPath) {
+  try {
+    $bi = Get-Content -LiteralPath $buildInfoPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $where = '工作树'
+    if ($bi.sourceRoot -eq 'snapshot') { $where = '干净快照（不含工作树的未提交改动）' }
+    $dirtyTxt = '，src/ 干净'
+    if ($bi.sourceDirty) { $dirtyTxt = '，当时 src/ 有未提交改动' }
+    $srcLine = "- www 来源：``" + $bi.sourceCommit + "``（构建于" + $where + $dirtyTxt + "，组装于 " + $bi.builtAt + "）"
+  } catch { $srcLine = '' }
+}
+if (-not $srcLine) {
+  $srcHead = (& git -C $RepoRoot rev-parse --short HEAD 2>$null | Select-Object -First 1)
+  if (-not $srcHead) { $srcHead = '(非 git 仓库)' }
+  $srcDirty = @(& git -C $RepoRoot status --porcelain -- src index.html data 2>$null).Count -gt 0
+  $srcLine = "- 源码版本：``" + $srcHead + "``" + $(if ($srcDirty) { "（src/ 有未提交改动，产物对应该工作树）" } else { "（src/ 干净）" })
+}
 $header = @(
   '# PSE 桌面壳验收报告',
   '',
@@ -412,6 +434,7 @@ $header = @(
   ("- 大小：" + $exeItem.Length + " 字节（" + [math]::Round($exeItem.Length / 1MB, 2) + " MB）"),
   ("- SHA256：" + "``" + $exeSha + "``"),
   ("- web 资源：www " + $wwwFiles.Count + " 个文件，" + [math]::Round($wwwBytes / 1MB, 2) + " MB（随 exe 一起分发）"),
+  $srcLine,
   ("- 用户数据：" + "``" + $UserData + "``"),
   ("- 验收方式：全程 ``--pse-offscreen``（窗口在屏幕外 -32000,-32000，验收全程无可见窗口；抓帧与截图走 PrintWindow）"),
   ("- 单实例互斥体：" + "``" + $script:verifyMutex + "``（避开用户正在运行的正式版）"),
