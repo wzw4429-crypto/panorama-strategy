@@ -374,7 +374,7 @@ git fetch origin          # 同步 tracking ref（否则 status 会显示 ahead�
 
 ## 7. Windows 桌面版（Go + WebView2 壳，已完成）
 
-产物：`desktop\dist\PSE-Panorama\`（exe 3.58 MB / 3 752 960 字节，SHA256 `2CFA6F69…D1BA6FE` ＋ `www\` 17 文件 1.30 MB，另可出 1.84 MB 的 zip；同目录 `build-info.txt` 记这份 www 的来源 commit / 是否干净 / 组装时间，验收报告头会读它）。全程**只动 `desktop/`**，不碰 `src/`、`index.html`、`data/`、`tests/`、`tools/`。
+产物：`desktop\dist\PSE-Panorama\`（exe 3.58 MB / 3 752 960 字节，SHA256 `2CFA6F69…D1BA6FE` ＋ `www\` 17 文件约 1.3 MB（随源码 commit 变化），另可出约 1.9 MB 的 zip；同目录 `build-info.txt` 记这份 www 的来源 commit / 是否干净 / 组装时间，验收报告头会读它）。全程**只动 `desktop/`**，不碰 `src/`、`index.html`、`data/`、`tests/`、`tools/`。
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Zip      # 出包（自检段也走离屏，不弹窗口）

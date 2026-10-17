@@ -43,13 +43,13 @@ desktop\dist\PSE-Panorama\PSE-Panorama.exe
 | 路径 | 说明 |
 |---|---|
 | `desktop\dist\PSE-Panorama\PSE-Panorama.exe` | 单文件 exe，**3.58 MB**（3 752 960 字节，SHA256 `2CFA6F695754A41694326E1364B2E3C099AE016642E0DF188A7D631D3D1BA6FE`；Go 静态链接，不需要 .NET / 不需要装 Go） |
-| `desktop\dist\PSE-Panorama\www\` | web 游戏产物 17 个文件 **1.30 MB**（`index.html` + `src\*.js` + `data\`） |
+| `desktop\dist\PSE-Panorama\www\` | web 游戏产物 17 个文件 **约 1.3 MB**（`index.html` + `src\*.js` + `data\`；随源码 commit 变化，确切值看构建输出或 `build-info.txt`） |
 | `desktop\dist\PSE-Panorama\README-分发.txt` | 给最终用户看的说明（存档位置、快捷键、右键） |
 | `desktop\dist\PSE-Panorama\build-info.txt` | **来源标记**：这份 `www\` 是从哪个 commit 组的（`sourceCommit` / `sourceDirty` / `sourceRoot` / `builtAt` / `wwwFiles`），验收报告头会读它写「www 来源」 |
-| `desktop\dist\PSE-Panorama-win-x64.zip` | 上面几项打成一个 zip，**1.84 MB**（1 932 773 字节） |
+| `desktop\dist\PSE-Panorama-win-x64.zip` | 上面几项打成一个 zip，**约 1.9 MB**（最近一次 1 936 681 字节，SHA256 `A41DE7B9…4C232`；zip 内含时间戳，每次重建哈希都会变） |
 | `desktop\dist\_evidence\` | 验收截图与报告（`01-启动画面.png` / `02-记忆恢复.png` / `03-全屏.png` / `04-应用图标-32.png` / `05-启动界面-1280x860.png` / `验收报告.md`） |
 
-**分发形态＝ exe + www 目录一起给**（解压即用，共 4.89 MB）。不做单文件内嵌：网页资源留在外面，改游戏内容只要替换 `www\`，不用重新编译 exe。
+**分发形态＝ exe + www 目录一起给**（解压即用，约 4.9 MB；最近一次 29d01ef 快照构建：exe 3 752 960 B + www 1.32 MB = 4.90 MB）。不做单文件内嵌：网页资源留在外面，改游戏内容只要替换 `www\`，不用重新编译 exe。
 
 **出包要对准哪个 commit**：`build.ps1` 会把组 www 时看到的 `git rev-parse HEAD` 与 `src/` 是否干净写进 `build-info.txt`。如果同桌还有别人未提交的改动（工作树是脏的），那份产物就不该用来分发 —— 从**已提交的干净快照**出包：
 
